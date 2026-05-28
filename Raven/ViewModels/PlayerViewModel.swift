@@ -7,7 +7,6 @@ final class PlayerViewModel {
     let sleepTimerOptions: [Int?] = [nil, 15, 30, 45, 60]
 
     var showChapterList = false
-    var showTranscript = false
     var showSleepTimer = false
     var isScrubbing = false
     var scrubValue: TimeInterval = 0

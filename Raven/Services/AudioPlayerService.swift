@@ -237,7 +237,7 @@ final class AudioPlayerService {
     private func addPlayerObservers(for player: AVPlayer, item: AVPlayerItem) {
         let interval = CMTime(seconds: 1.0, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self else { return }
                 self.currentTime = time.seconds
                 self.checkSleepTimerExpiry()
@@ -251,7 +251,7 @@ final class AudioPlayerService {
             object: item,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.handleChapterFinished()
             }
         }

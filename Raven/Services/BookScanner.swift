@@ -18,29 +18,8 @@ struct ScanResult: Sendable {
 
 enum BookScanner {
     /// Scans a folder (with active security-scoped access) for supported audio files.
-    static func scan(folderURL: URL) async throws -> ScanResult {
-        let resourceKeys: [URLResourceKey] = [.isRegularFileKey, .nameKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: folderURL,
-            includingPropertiesForKeys: resourceKeys,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            throw ScanError.enumerationFailed
-        }
-
-        var audioFiles: [(url: URL, name: String)] = []
-
-        for case let fileURL as URL in enumerator {
-            let values = try fileURL.resourceValues(forKeys: Set(resourceKeys))
-            guard values.isRegularFile == true, AudioFileTypes.isSupportedAudioFile(fileURL) else { continue }
-            audioFiles.append((fileURL, values.name ?? fileURL.lastPathComponent))
-        }
-
-        guard !audioFiles.isEmpty else {
-            throw ScanError.noAudioFiles
-        }
-
-        audioFiles.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    nonisolated static func scan(folderURL: URL) async throws -> ScanResult {
+        let audioFiles = try collectAudioFiles(in: folderURL)
 
         var chapters: [ScannedChapter] = []
         var metadataTitle: String?
@@ -82,7 +61,32 @@ enum BookScanner {
         )
     }
 
-    private static func extractMetadata(from asset: AVURLAsset) async throws -> (title: String?, author: String?, artwork: Data?) {
+    nonisolated private static func collectAudioFiles(in folderURL: URL) throws -> [(url: URL, name: String)] {
+        let resourceKeys: [URLResourceKey] = [.isRegularFileKey, .nameKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: folderURL,
+            includingPropertiesForKeys: resourceKeys,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            throw ScanError.enumerationFailed
+        }
+
+        var audioFiles: [(url: URL, name: String)] = []
+        while let fileURL = enumerator.nextObject() as? URL {
+            let values = try fileURL.resourceValues(forKeys: Set(resourceKeys))
+            guard values.isRegularFile == true, AudioFileTypes.isSupportedAudioFile(fileURL) else { continue }
+            audioFiles.append((fileURL, values.name ?? fileURL.lastPathComponent))
+        }
+
+        guard !audioFiles.isEmpty else {
+            throw ScanError.noAudioFiles
+        }
+
+        audioFiles.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return audioFiles
+    }
+
+    nonisolated private static func extractMetadata(from asset: AVURLAsset) async throws -> (title: String?, author: String?, artwork: Data?) {
         let metadata = try await asset.load(.commonMetadata)
         var title: String?
         var author: String?
@@ -92,14 +96,14 @@ enum BookScanner {
             guard let key = item.commonKey else { continue }
             switch key {
             case .commonKeyTitle:
-                title = item.stringValue
+                title = try await item.load(.stringValue)
             case .commonKeyArtist, .commonKeyAuthor:
                 if author == nil {
-                    author = item.stringValue
+                    author = try await item.load(.stringValue)
                 }
             case .commonKeyArtwork:
                 if artwork == nil {
-                    artwork = item.dataValue
+                    artwork = try await item.load(.dataValue)
                 }
             default:
                 break
@@ -124,13 +128,13 @@ enum ScanError: LocalizedError {
 }
 
 private extension String {
-    var deletingPathExtension: String {
+    nonisolated var deletingPathExtension: String {
         (self as NSString).deletingPathExtension
     }
 }
 
 private extension CMTime {
-    var seconds: TimeInterval {
+    nonisolated var seconds: TimeInterval {
         CMTimeGetSeconds(self)
     }
 }

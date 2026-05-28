@@ -1,7 +1,7 @@
 import UniformTypeIdentifiers
 
 enum AudioFileTypes {
-    static let supportedExtensions: Set<String> = [
+    nonisolated static let supportedExtensions: Set<String> = [
         "mp3", "m4a", "m4b", "aac", "wav", "flac", "aiff", "caf"
     ]
 
@@ -9,7 +9,7 @@ enum AudioFileTypes {
         .mp3, .mpeg4Audio, .audio, .wav, .aiff
     ]
 
-    static func isSupportedAudioFile(_ url: URL) -> Bool {
+    nonisolated static func isSupportedAudioFile(_ url: URL) -> Bool {
         supportedExtensions.contains(url.pathExtension.lowercased())
     }
 }

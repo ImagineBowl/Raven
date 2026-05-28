@@ -1,4 +1,4 @@
-import BackgroundTasks
+@preconcurrency import BackgroundTasks
 import Foundation
 import SwiftData
 
@@ -109,7 +109,7 @@ final class TranscriptionService {
         } catch let error as WhisperModelError {
             chapter.transcriptionState = .failed
             try? modelContext.save()
-            throw TranscriptionError.modelUnavailable(error.localizedDescription ?? "Whisper model error.")
+            throw TranscriptionError.modelUnavailable(error.localizedDescription)
         } catch {
             chapter.transcriptionState = .failed
             try? modelContext.save()
@@ -153,27 +153,29 @@ final class TranscriptionService {
     }
 
     private func runTranscriptionJob(audioURL: URL, chapterTitle: String) async throws -> [TimedSegment] {
-        try await Task.detached(priority: .utility) { [engine] in
-            let throttler = ProgressThrottler(minimumInterval: 1.0)
-            var timedSegments: [TimedSegment] = []
-            try await BackgroundTranscriptionCoordinator.shared.execute(
-                title: "Transcribing",
-                subtitle: chapterTitle
-            ) { task in
-                timedSegments = try await engine.transcribe(audioURL: audioURL) { message in
-                    throttler.report(message) { throttledMessage in
-                        Task { @MainActor in
-                            self.updateProgress(throttledMessage, backgroundTask: task)
-                        }
+        let throttler = ProgressThrottler(minimumInterval: 1.0)
+        let result = TranscriptionResultBox()
+        try await BackgroundTranscriptionCoordinator.shared.execute(
+            title: "Transcribing",
+            subtitle: chapterTitle
+        ) { task in
+            result.segments = try await self.engine.transcribe(audioURL: audioURL) { message in
+                throttler.report(message) { throttledMessage in
+                    Task { @MainActor in
+                        self.updateProgress(throttledMessage, backgroundTask: task)
                     }
                 }
             }
-            return timedSegments
-        }.value
+        }
+        return result.segments
     }
 
     private func updateProgress(_ message: String, backgroundTask: BGContinuedProcessingTask) {
         progressMessage = message
         backgroundTask.updateTitle("Transcribing", subtitle: message)
     }
+}
+
+private final class TranscriptionResultBox: @unchecked Sendable {
+    var segments: [TimedSegment] = []
 }

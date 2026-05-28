@@ -20,7 +20,7 @@ final class BookImportService {
             let scanResult = try await BookScanner.scan(folderURL: folderURL)
 
             if let existing = try findLibraryBook(named: folderName) {
-                try await refreshBookIfNeeded(existing, scanResult: scanResult)
+                try refreshBookIfNeeded(existing, scanResult: scanResult)
             } else if let linked = try findBook(matching: scanResult.contentFingerprint) {
                 link(linked, folderName: folderName, scanResult: scanResult)
             } else {

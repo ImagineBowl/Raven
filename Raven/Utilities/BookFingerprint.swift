@@ -3,7 +3,7 @@ import Foundation
 
 enum BookFingerprint {
     /// File layout identity — stable across rescans (paths only).
-    static func makePathIdentity(from chapters: [ScannedChapter]) -> String {
+    nonisolated static func makePathIdentity(from chapters: [ScannedChapter]) -> String {
         let payload = chapters
             .sorted { $0.sortOrder < $1.sortOrder }
             .map(\.relativePath)
@@ -19,7 +19,7 @@ enum BookFingerprint {
     }
 
     /// Full content identity including durations — used when importing new books.
-    static func make(from chapters: [ScannedChapter]) -> String {
+    nonisolated static func make(from chapters: [ScannedChapter]) -> String {
         let payload = chapters
             .sorted { $0.sortOrder < $1.sortOrder }
             .map { "\($0.relativePath)|\(String(format: "%.3f", $0.duration))" }
@@ -34,7 +34,7 @@ enum BookFingerprint {
         return hash(payload)
     }
 
-    private static func hash(_ payload: String) -> String {
+    nonisolated private static func hash(_ payload: String) -> String {
         let digest = SHA256.hash(data: Data(payload.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }

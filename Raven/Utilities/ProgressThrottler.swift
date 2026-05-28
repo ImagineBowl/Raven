@@ -6,17 +6,18 @@ final class ProgressThrottler: Sendable {
     private let minimumInterval: TimeInterval
     private let state: OSAllocatedUnfairLock<State>
 
-    private struct State {
+    private struct State: Sendable {
+        nonisolated init() {}
         var lastDelivered = Date.distantPast
         var lastMessage: String?
     }
 
-    init(minimumInterval: TimeInterval = 1.0) {
+    nonisolated init(minimumInterval: TimeInterval = 1.0) {
         self.minimumInterval = minimumInterval
         self.state = OSAllocatedUnfairLock(initialState: State())
     }
 
-    func report(_ message: String, deliver: @Sendable (String) -> Void) {
+    nonisolated func report(_ message: String, deliver: @Sendable (String) -> Void) {
         let shouldDeliver = state.withLock { state -> Bool in
             let now = Date()
             let isNewMessage = message != state.lastMessage
@@ -33,7 +34,7 @@ final class ProgressThrottler: Sendable {
         }
     }
 
-    func flush(_ message: String, deliver: @Sendable (String) -> Void) {
+    nonisolated func flush(_ message: String, deliver: @Sendable (String) -> Void) {
         state.withLock { state in
             state.lastDelivered = Date()
             state.lastMessage = message

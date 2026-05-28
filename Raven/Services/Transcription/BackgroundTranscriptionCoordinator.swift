@@ -40,7 +40,7 @@ actor BackgroundTranscriptionCoordinator {
     func execute(
         title: String,
         subtitle: String,
-        work: @escaping @Sendable (BGContinuedProcessingTask) async throws -> Void
+        work: @escaping (BGContinuedProcessingTask) async throws -> Void
     ) async throws {
         try await withCheckedThrowingContinuation { continuation in
             Task {
@@ -58,8 +58,8 @@ actor BackgroundTranscriptionCoordinator {
         continuation: CheckedContinuation<Void, Error>,
         title: String,
         subtitle: String,
-        work: @escaping @Sendable (BGContinuedProcessingTask) async throws -> Void
-    ) {
+        work: @escaping (BGContinuedProcessingTask) async throws -> Void
+    ) async {
         guard workBlock == nil, pendingContinuation == nil else {
             continuation.resume(throwing: BackgroundTranscriptionError.alreadyRunning)
             return

@@ -1,19 +1,16 @@
 import BackgroundTasks
 import Foundation
 
-/// Keeps user-initiated Whisper transcription running after the app is backgrounded (iOS 26+).
-final class BackgroundTranscriptionCoordinator: @unchecked Sendable {
+/// Keeps user-initiated Whisper transcription running under a continued background task (iOS 26+).
+actor BackgroundTranscriptionCoordinator {
     static let shared = BackgroundTranscriptionCoordinator()
     static let taskIdentifier = "com.Imaginebowl.Raven.transcription"
 
-    private let lock = NSLock()
     private var pendingContinuation: CheckedContinuation<Void, Error>?
     private var workBlock: ((BGContinuedProcessingTask) async throws -> Void)?
     private var activeTask: BGContinuedProcessingTask?
 
-    private init() {}
-
-    func register() {
+    nonisolated func register() {
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: Self.taskIdentifier,
             using: nil
@@ -23,62 +20,72 @@ final class BackgroundTranscriptionCoordinator: @unchecked Sendable {
                 return
             }
             Task(priority: .utility) {
-                await self.run(task: continuedTask)
+                await BackgroundTranscriptionCoordinator.shared.run(task: continuedTask)
             }
         }
     }
 
     /// Cancels any in-flight continued background transcription work.
     func cancel() {
-        lock.lock()
         let task = activeTask
         let continuation = pendingContinuation
-        clearPendingStateLocked()
+        clearPendingState()
         activeTask = nil
-        lock.unlock()
 
         task?.setTaskCompleted(success: false)
         continuation?.resume(throwing: CancellationError())
     }
 
-    /// Runs `work` under a continued background task so transcription can finish if the app is minimized.
+    /// Runs `work` under a continued background task.
     func execute(
         title: String,
         subtitle: String,
         work: @escaping @Sendable (BGContinuedProcessingTask) async throws -> Void
     ) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            lock.lock()
-            if workBlock != nil || pendingContinuation != nil {
-                lock.unlock()
-                continuation.resume(throwing: BackgroundTranscriptionError.alreadyRunning)
-                return
-            }
-            workBlock = work
-            pendingContinuation = continuation
-            lock.unlock()
-
-            let request = BGContinuedProcessingTaskRequest(
-                identifier: Self.taskIdentifier,
-                title: title,
-                subtitle: subtitle
-            )
-            request.strategy = .queue
-
-            do {
-                try BGTaskScheduler.shared.submit(request)
-            } catch {
-                clearPendingState()
-                continuation.resume(throwing: error)
+        try await withCheckedThrowingContinuation { continuation in
+            Task {
+                await self.storeAndSubmit(
+                    continuation: continuation,
+                    title: title,
+                    subtitle: subtitle,
+                    work: work
+                )
             }
         }
     }
 
+    private func storeAndSubmit(
+        continuation: CheckedContinuation<Void, Error>,
+        title: String,
+        subtitle: String,
+        work: @escaping @Sendable (BGContinuedProcessingTask) async throws -> Void
+    ) {
+        guard workBlock == nil, pendingContinuation == nil else {
+            continuation.resume(throwing: BackgroundTranscriptionError.alreadyRunning)
+            return
+        }
+
+        workBlock = work
+        pendingContinuation = continuation
+
+        let request = BGContinuedProcessingTaskRequest(
+            identifier: Self.taskIdentifier,
+            title: title,
+            subtitle: subtitle
+        )
+        request.strategy = .queue
+
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            clearPendingState()
+            continuation.resume(throwing: error)
+        }
+    }
+
     private func run(task: BGContinuedProcessingTask) async {
-        lock.lock()
         activeTask = task
         let work = workBlock
-        lock.unlock()
 
         guard let work else {
             task.setTaskCompleted(success: false)
@@ -87,7 +94,9 @@ final class BackgroundTranscriptionCoordinator: @unchecked Sendable {
         }
 
         task.expirationHandler = { [weak self] in
-            self?.resumePending(with: .failure(BackgroundTranscriptionError.expired))
+            Task {
+                await self?.handleExpiration()
+            }
         }
 
         do {
@@ -99,16 +108,16 @@ final class BackgroundTranscriptionCoordinator: @unchecked Sendable {
             resumePending(with: .failure(error))
         }
 
-        lock.lock()
         activeTask = nil
-        lock.unlock()
+    }
+
+    private func handleExpiration() {
+        resumePending(with: .failure(BackgroundTranscriptionError.expired))
     }
 
     private func resumePending(with result: Result<Void, Error>) {
-        lock.lock()
         let continuation = pendingContinuation
-        clearPendingStateLocked()
-        lock.unlock()
+        clearPendingState()
 
         switch result {
         case .success:
@@ -119,12 +128,6 @@ final class BackgroundTranscriptionCoordinator: @unchecked Sendable {
     }
 
     private func clearPendingState() {
-        lock.lock()
-        clearPendingStateLocked()
-        lock.unlock()
-    }
-
-    private func clearPendingStateLocked() {
         pendingContinuation = nil
         workBlock = nil
     }

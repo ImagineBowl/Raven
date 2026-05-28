@@ -1,34 +1,43 @@
 import Foundation
+import os
 
 /// Coalesces high-frequency progress callbacks so UI updates stay smooth during heavy work.
-final class ProgressThrottler: @unchecked Sendable {
+final class ProgressThrottler: Sendable {
     private let minimumInterval: TimeInterval
-    private var lastDelivered = Date.distantPast
-    private var lastMessage: String?
-    private let lock = NSLock()
+    private let state: OSAllocatedUnfairLock<State>
+
+    private struct State {
+        var lastDelivered = Date.distantPast
+        var lastMessage: String?
+    }
 
     init(minimumInterval: TimeInterval = 1.0) {
         self.minimumInterval = minimumInterval
+        self.state = OSAllocatedUnfairLock(initialState: State())
     }
 
     func report(_ message: String, deliver: @Sendable (String) -> Void) {
-        lock.lock()
-        defer { lock.unlock() }
+        let shouldDeliver = state.withLock { state -> Bool in
+            let now = Date()
+            let isNewMessage = message != state.lastMessage
+            guard isNewMessage, now.timeIntervalSince(state.lastDelivered) >= minimumInterval else {
+                return false
+            }
+            state.lastDelivered = now
+            state.lastMessage = message
+            return true
+        }
 
-        let now = Date()
-        let isNewMessage = message != lastMessage
-        guard isNewMessage, now.timeIntervalSince(lastDelivered) >= minimumInterval else { return }
-
-        lastDelivered = now
-        lastMessage = message
-        deliver(message)
+        if shouldDeliver {
+            deliver(message)
+        }
     }
 
     func flush(_ message: String, deliver: @Sendable (String) -> Void) {
-        lock.lock()
-        lastDelivered = Date()
-        lastMessage = message
-        lock.unlock()
+        state.withLock { state in
+            state.lastDelivered = Date()
+            state.lastMessage = message
+        }
         deliver(message)
     }
 }

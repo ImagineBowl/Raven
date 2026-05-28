@@ -41,7 +41,7 @@ final class TranscriptionService {
         guard isProcessing else { return }
 
         activeTranscriptionTask?.cancel()
-        BackgroundTranscriptionCoordinator.shared.cancel()
+        Task { await BackgroundTranscriptionCoordinator.shared.cancel() }
         Task { await engine.cancelActiveWork() }
 
         if let chapter = processingChapter {

@@ -65,6 +65,11 @@ actor WhisperKitTranscriptionEngine {
         removeDownloadedModel()
     }
 
+    func cancelActiveWork() {
+        loadTask?.cancel()
+        loadTask = nil
+    }
+
     // MARK: - Private
 
     private func loadWhisperKit(onProgress: (@Sendable (String) -> Void)? = nil) async throws -> WhisperKit {

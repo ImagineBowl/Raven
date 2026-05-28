@@ -7,6 +7,7 @@ enum TranscriptionError: LocalizedError {
     case audioFileNotFound
     case emptyTranscript
     case modelUnavailable(String)
+    case cancelled
 
     var errorDescription: String? {
         switch self {
@@ -18,6 +19,8 @@ enum TranscriptionError: LocalizedError {
             "Whisper returned no transcript segments for this chapter."
         case .modelUnavailable(let message):
             message
+        case .cancelled:
+            "Transcription was stopped."
         }
     }
 }
@@ -30,6 +33,28 @@ final class TranscriptionService {
     private(set) var isProcessing = false
 
     private let engine = WhisperKitTranscriptionEngine.shared
+    private var activeTranscriptionTask: Task<[TimedSegment], Error>?
+    private var processingChapter: Chapter?
+
+    /// Stops in-flight transcription when the app is minimized or the device is locked.
+    func suspendForBackground(modelContext: ModelContext) {
+        guard isProcessing else { return }
+
+        activeTranscriptionTask?.cancel()
+        BackgroundTranscriptionCoordinator.shared.cancel()
+        Task { await engine.cancelActiveWork() }
+
+        if let chapter = processingChapter {
+            chapter.transcriptionState = .none
+            try? modelContext.save()
+        }
+
+        activeTranscriptionTask = nil
+        processingChapter = nil
+        isProcessing = false
+        activeChapterID = nil
+        progressMessage = ""
+    }
 
     /// Returns cached segments or transcribes the chapter, saves locally, then returns segments.
     func ensureTranscript(for chapter: Chapter, book: Book, modelContext: ModelContext) async throws -> [TranscriptSegment] {
@@ -46,13 +71,16 @@ final class TranscriptionService {
 
         activeChapterID = chapter.id
         isProcessing = true
+        processingChapter = chapter
         progressMessage = "Preparing Whisper model…"
         chapter.transcriptionState = .processing
 
         defer {
             isProcessing = false
             activeChapterID = nil
+            processingChapter = nil
             progressMessage = ""
+            activeTranscriptionTask = nil
         }
 
         let folderURL = try BookFolderAccess.openFolder(for: book)
@@ -70,7 +98,14 @@ final class TranscriptionService {
 
         let timedSegments: [TimedSegment]
         do {
-            timedSegments = try await runTranscriptionJob(audioURL: audioURL, chapterTitle: chapterTitle)
+            activeTranscriptionTask = Task {
+                try await runTranscriptionJob(audioURL: audioURL, chapterTitle: chapterTitle)
+            }
+            timedSegments = try await activeTranscriptionTask!.value
+        } catch is CancellationError {
+            chapter.transcriptionState = .none
+            try? modelContext.save()
+            throw TranscriptionError.cancelled
         } catch let error as WhisperModelError {
             chapter.transcriptionState = .failed
             try? modelContext.save()

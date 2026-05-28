@@ -9,6 +9,7 @@ final class BackgroundTranscriptionCoordinator: @unchecked Sendable {
     private let lock = NSLock()
     private var pendingContinuation: CheckedContinuation<Void, Error>?
     private var workBlock: ((BGContinuedProcessingTask) async throws -> Void)?
+    private var activeTask: BGContinuedProcessingTask?
 
     private init() {}
 
@@ -25,6 +26,19 @@ final class BackgroundTranscriptionCoordinator: @unchecked Sendable {
                 await self.run(task: continuedTask)
             }
         }
+    }
+
+    /// Cancels any in-flight continued background transcription work.
+    func cancel() {
+        lock.lock()
+        let task = activeTask
+        let continuation = pendingContinuation
+        clearPendingStateLocked()
+        activeTask = nil
+        lock.unlock()
+
+        task?.setTaskCompleted(success: false)
+        continuation?.resume(throwing: CancellationError())
     }
 
     /// Runs `work` under a continued background task so transcription can finish if the app is minimized.
@@ -62,6 +76,7 @@ final class BackgroundTranscriptionCoordinator: @unchecked Sendable {
 
     private func run(task: BGContinuedProcessingTask) async {
         lock.lock()
+        activeTask = task
         let work = workBlock
         lock.unlock()
 
@@ -83,6 +98,10 @@ final class BackgroundTranscriptionCoordinator: @unchecked Sendable {
             task.setTaskCompleted(success: false)
             resumePending(with: .failure(error))
         }
+
+        lock.lock()
+        activeTask = nil
+        lock.unlock()
     }
 
     private func resumePending(with result: Result<Void, Error>) {

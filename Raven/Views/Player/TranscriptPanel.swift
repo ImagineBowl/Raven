@@ -144,6 +144,8 @@ struct TranscriptPanel: View {
             )
             segments = sanitized(loaded)
             try? modelContext.save()
+        } catch TranscriptionError.cancelled {
+            return
         } catch {
             errorMessage = error.localizedDescription
         }

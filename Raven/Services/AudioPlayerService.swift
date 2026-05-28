@@ -47,6 +47,23 @@ final class AudioPlayerService {
         setupRemoteCommands()
     }
 
+    /// Saves playback position and enforces timers when the app backgrounds or locks.
+    func handleAppBackgrounded() {
+        checkSleepTimerExpiry()
+        flushProgress()
+    }
+
+    func checkSleepTimerExpiry() {
+        guard let endDate = sleepTimerEndDate, Date() >= endDate else { return }
+        sleepTimerTask?.cancel()
+        sleepTimerTask = nil
+        sleepTimerEndDate = nil
+        isBedtimeModeEnabled = false
+        if isPlaying {
+            pause()
+        }
+    }
+
     /// Saves playback position immediately — call when app backgrounds.
     func flushProgress() {
         progressSaveTask?.cancel()
@@ -223,6 +240,7 @@ final class AudioPlayerService {
             Task { @MainActor in
                 guard let self else { return }
                 self.currentTime = time.seconds
+                self.checkSleepTimerExpiry()
                 self.updateNowPlayingIfNeeded()
                 self.scheduleProgressSave()
             }

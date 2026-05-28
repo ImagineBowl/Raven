@@ -1,3 +1,4 @@
+import CoreML
 import Foundation
 import WhisperKit
 
@@ -21,8 +22,9 @@ enum WhisperModelError: LocalizedError {
 actor WhisperKitTranscriptionEngine {
     static let shared = WhisperKitTranscriptionEngine()
 
-    private static let modelVariant = "openai_whisper-base"
+    private static let modelVariant = "openai_whisper-tiny"
     private static let modelRepo = "argmaxinc/whisperkit-coreml"
+    private static let estimatedDownloadSize = "~75 MB"
 
     private var whisperKit: WhisperKit?
     private var loadTask: Task<WhisperKit, Error>?
@@ -36,6 +38,7 @@ actor WhisperKitTranscriptionEngine {
 
         var decodeOptions = DecodingOptions()
         decodeOptions.skipSpecialTokens = true
+        decodeOptions.topK = 1
 
         let results = try await kit.transcribe(
             audioPath: audioURL.path(percentEncoded: false),
@@ -89,7 +92,7 @@ actor WhisperKitTranscriptionEngine {
 
         var modelFolder = cachedModelFolderIfValid()
         if modelFolder == nil {
-            onProgress?("Downloading Whisper model (~140 MB)…")
+            onProgress?("Downloading Whisper model (\(Self.estimatedDownloadSize))…")
             modelFolder = try await downloadModel(onProgress: onProgress)
         }
 
@@ -121,8 +124,15 @@ actor WhisperKitTranscriptionEngine {
         onProgress: (@Sendable (String) -> Void)? = nil
     ) async throws -> WhisperKit {
         onProgress?("Loading Whisper model…")
+        let computeOptions = ModelComputeOptions(
+            melCompute: .cpuAndNeuralEngine,
+            audioEncoderCompute: .cpuAndNeuralEngine,
+            textDecoderCompute: .cpuAndNeuralEngine,
+            prefillCompute: .cpuOnly
+        )
         let config = WhisperKitConfig(
             modelFolder: modelFolder.path(percentEncoded: false),
+            computeOptions: computeOptions,
             prewarm: true,
             load: true,
             download: false,

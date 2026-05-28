@@ -57,7 +57,7 @@ Raven/
 
 ## Transcription
 
-The first transcript download pulls the Whisper `base` model (~140 MB). Transcripts are stored locally per chapter and reused on later playback.
+The first transcript download pulls the Whisper `tiny` model (~75 MB). Transcripts are stored locally per chapter and reused on later playback.
 
 ## License
 

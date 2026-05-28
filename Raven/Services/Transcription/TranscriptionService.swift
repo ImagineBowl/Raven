@@ -1,6 +1,6 @@
+import BackgroundTasks
 import Foundation
 import SwiftData
-import BackgroundTasks
 
 enum TranscriptionError: LocalizedError {
     case chapterNotFound
@@ -66,17 +66,11 @@ final class TranscriptionService {
         }
 
         progressMessage = "Transcribing \"\(chapter.title)\"…"
-        var timedSegments: [TimedSegment] = []
+        let chapterTitle = chapter.title
+
+        let timedSegments: [TimedSegment]
         do {
-            try await BackgroundTranscriptionCoordinator.shared.execute(
-                title: "Transcribing",
-                subtitle: chapter.title
-            ) { task in
-                timedSegments = try await self.runTranscription(
-                    audioURL: audioURL,
-                    backgroundTask: task
-                )
-            }
+            timedSegments = try await runTranscriptionJob(audioURL: audioURL, chapterTitle: chapterTitle)
         } catch let error as WhisperModelError {
             chapter.transcriptionState = .failed
             try? modelContext.save()
@@ -86,6 +80,7 @@ final class TranscriptionService {
             try? modelContext.save()
             throw error
         }
+
         guard !timedSegments.isEmpty else {
             chapter.transcriptionState = .failed
             try? modelContext.save()
@@ -122,15 +117,28 @@ final class TranscriptionService {
         await engine.resetModelCache()
     }
 
-    private func runTranscription(
-        audioURL: URL,
-        backgroundTask: BGContinuedProcessingTask
-    ) async throws -> [TimedSegment] {
-        try await engine.transcribe(audioURL: audioURL) { [weak self] message in
-            Task { @MainActor in
-                self?.progressMessage = message
-                backgroundTask.updateTitle("Transcribing", subtitle: message)
+    private func runTranscriptionJob(audioURL: URL, chapterTitle: String) async throws -> [TimedSegment] {
+        try await Task.detached(priority: .utility) { [engine] in
+            let throttler = ProgressThrottler(minimumInterval: 1.0)
+            var timedSegments: [TimedSegment] = []
+            try await BackgroundTranscriptionCoordinator.shared.execute(
+                title: "Transcribing",
+                subtitle: chapterTitle
+            ) { task in
+                timedSegments = try await engine.transcribe(audioURL: audioURL) { message in
+                    throttler.report(message) { throttledMessage in
+                        Task { @MainActor in
+                            self.updateProgress(throttledMessage, backgroundTask: task)
+                        }
+                    }
+                }
             }
-        }
+            return timedSegments
+        }.value
+    }
+
+    private func updateProgress(_ message: String, backgroundTask: BGContinuedProcessingTask) {
+        progressMessage = message
+        backgroundTask.updateTitle("Transcribing", subtitle: message)
     }
 }

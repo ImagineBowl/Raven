@@ -47,7 +47,13 @@ struct TranscriptPanel: View {
             }
         }
         .task(id: chapter.id) {
-            await loadTranscript(force: false)
+            startTranscriptLoad(force: false)
+        }
+    }
+
+    private func startTranscriptLoad(force: Bool) {
+        Task {
+            await loadTranscript(force: force)
         }
     }
 
@@ -70,7 +76,7 @@ struct TranscriptPanel: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Text("First run downloads the Whisper model (~140 MB).")
+            Text("First run downloads the Whisper model (~75 MB).")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)

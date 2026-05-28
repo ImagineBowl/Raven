@@ -2,11 +2,11 @@ import BackgroundTasks
 import Foundation
 
 /// Keeps user-initiated Whisper transcription running after the app is backgrounded (iOS 26+).
-@MainActor
-final class BackgroundTranscriptionCoordinator {
+final class BackgroundTranscriptionCoordinator: @unchecked Sendable {
     static let shared = BackgroundTranscriptionCoordinator()
     static let taskIdentifier = "com.Imaginebowl.Raven.transcription"
 
+    private let lock = NSLock()
     private var pendingContinuation: CheckedContinuation<Void, Error>?
     private var workBlock: ((BGContinuedProcessingTask) async throws -> Void)?
 
@@ -21,7 +21,7 @@ final class BackgroundTranscriptionCoordinator {
                 task.setTaskCompleted(success: false)
                 return
             }
-            Task { @MainActor in
+            Task(priority: .utility) {
                 await self.run(task: continuedTask)
             }
         }
@@ -31,23 +31,26 @@ final class BackgroundTranscriptionCoordinator {
     func execute(
         title: String,
         subtitle: String,
-        work: @escaping (BGContinuedProcessingTask) async throws -> Void
+        work: @escaping @Sendable (BGContinuedProcessingTask) async throws -> Void
     ) async throws {
-        guard workBlock == nil, pendingContinuation == nil else {
-            throw BackgroundTranscriptionError.alreadyRunning
-        }
-
-        workBlock = work
-
-        let request = BGContinuedProcessingTaskRequest(
-            identifier: Self.taskIdentifier,
-            title: title,
-            subtitle: subtitle
-        )
-        request.strategy = .queue
-
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            lock.lock()
+            if workBlock != nil || pendingContinuation != nil {
+                lock.unlock()
+                continuation.resume(throwing: BackgroundTranscriptionError.alreadyRunning)
+                return
+            }
+            workBlock = work
             pendingContinuation = continuation
+            lock.unlock()
+
+            let request = BGContinuedProcessingTaskRequest(
+                identifier: Self.taskIdentifier,
+                title: title,
+                subtitle: subtitle
+            )
+            request.strategy = .queue
+
             do {
                 try BGTaskScheduler.shared.submit(request)
             } catch {
@@ -58,16 +61,18 @@ final class BackgroundTranscriptionCoordinator {
     }
 
     private func run(task: BGContinuedProcessingTask) async {
-        guard let work = workBlock else {
+        lock.lock()
+        let work = workBlock
+        lock.unlock()
+
+        guard let work else {
             task.setTaskCompleted(success: false)
             resumePending(with: .failure(BackgroundTranscriptionError.missingWork))
             return
         }
 
         task.expirationHandler = { [weak self] in
-            Task { @MainActor in
-                self?.resumePending(with: .failure(BackgroundTranscriptionError.expired))
-            }
+            self?.resumePending(with: .failure(BackgroundTranscriptionError.expired))
         }
 
         do {
@@ -81,8 +86,11 @@ final class BackgroundTranscriptionCoordinator {
     }
 
     private func resumePending(with result: Result<Void, Error>) {
+        lock.lock()
         let continuation = pendingContinuation
-        clearPendingState()
+        clearPendingStateLocked()
+        lock.unlock()
+
         switch result {
         case .success:
             continuation?.resume()
@@ -92,6 +100,12 @@ final class BackgroundTranscriptionCoordinator {
     }
 
     private func clearPendingState() {
+        lock.lock()
+        clearPendingStateLocked()
+        lock.unlock()
+    }
+
+    private func clearPendingStateLocked() {
         pendingContinuation = nil
         workBlock = nil
     }

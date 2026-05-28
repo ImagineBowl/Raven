@@ -12,6 +12,7 @@ import SwiftData
 struct RavenApp: App {
     @State private var player = AudioPlayerService()
     @State private var transcriptionService = TranscriptionService()
+    @State private var showLaunchScreen = true
 
     init() {
         RavenLibraryStore.setupOnFirstLaunch()
@@ -20,9 +21,15 @@ struct RavenApp: App {
 
     var body: some Scene {
         WindowGroup {
-            AppRootView()
-                .environment(player)
-                .environment(transcriptionService)
+            Group {
+                if showLaunchScreen {
+                    LaunchScreenView(isPresented: $showLaunchScreen)
+                } else {
+                    AppRootView()
+                        .environment(player)
+                        .environment(transcriptionService)
+                }
+            }
         }
         .modelContainer(ModelStorage.shared)
     }

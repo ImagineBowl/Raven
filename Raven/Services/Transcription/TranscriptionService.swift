@@ -92,7 +92,7 @@ final class TranscriptionService {
             TranscriptSegment(
                 startTime: segment.startTime,
                 endTime: segment.endTime,
-                text: segment.text,
+                text: TranscriptTextSanitizer.clean(segment.text),
                 sortOrder: index
             )
         }

@@ -33,12 +33,19 @@ actor WhisperKitTranscriptionEngine {
     ) async throws -> [TimedSegment] {
         let kit = try await loadWhisperKit(onProgress: onProgress)
         onProgress?("Transcribing audio…")
-        let results = try await kit.transcribe(audioPath: audioURL.path(percentEncoded: false))
+
+        var decodeOptions = DecodingOptions()
+        decodeOptions.skipSpecialTokens = true
+
+        let results = try await kit.transcribe(
+            audioPath: audioURL.path(percentEncoded: false),
+            decodeOptions: decodeOptions
+        )
 
         guard let result = results.first else { return [] }
 
         return result.segments.compactMap { segment in
-            let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = TranscriptTextSanitizer.clean(segment.text)
             guard !text.isEmpty else { return nil }
             return TimedSegment(
                 startTime: TimeInterval(segment.start),

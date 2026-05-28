@@ -102,7 +102,7 @@ final class TranscriptionService {
     }
 
     func segment(at time: TimeInterval, in segments: [TranscriptSegment]) -> TranscriptSegment? {
-        segments.first { time >= $0.startTime && time < $0.endTime }
+        TranscriptSegmentLookup.segment(at: time, in: segments)
     }
 
     func search(_ query: String, in segments: [TranscriptSegment]) -> [TranscriptSegment] {

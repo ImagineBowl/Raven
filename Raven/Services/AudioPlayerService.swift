@@ -38,6 +38,7 @@ final class AudioPlayerService {
     private var modelContext: ModelContext?
     private var progressSaveTask: Task<Void, Never>?
     private var sleepTimerTask: Task<Void, Never>?
+    private var lastNowPlayingUpdate: TimeInterval = 0
 
     func configure(modelContext: ModelContext) {
         self.modelContext = modelContext
@@ -198,12 +199,12 @@ final class AudioPlayerService {
     }
 
     private func addPlayerObservers(for player: AVPlayer, item: AVPlayerItem) {
-        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+        let interval = CMTime(seconds: 1.0, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
                 guard let self else { return }
                 self.currentTime = time.seconds
-                self.updateNowPlaying()
+                self.updateNowPlayingIfNeeded()
                 self.scheduleProgressSave()
             }
         }
@@ -298,6 +299,13 @@ final class AudioPlayerService {
             skipBackward: { [weak self] in self?.skipBackward() },
             changePlaybackPosition: { [weak self] time in self?.seek(to: time) }
         )
+    }
+
+    private func updateNowPlayingIfNeeded() {
+        let now = Date.timeIntervalSinceReferenceDate
+        guard now - lastNowPlayingUpdate >= 1.0 else { return }
+        lastNowPlayingUpdate = now
+        updateNowPlaying()
     }
 
     private func updateNowPlaying() {

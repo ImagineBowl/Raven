@@ -1,14 +1,36 @@
 import SwiftUI
 
+/// Applies scroll-offset hysteresis so collapse state does not thrash while scrolling.
+struct PlayerCollapseState {
+    private(set) var isCollapsed = false
+
+    mutating func update(for offset: CGFloat) -> Bool {
+        if !isCollapsed, offset > 48 {
+            isCollapsed = true
+            return true
+        }
+        if isCollapsed, offset < 8 {
+            isCollapsed = false
+            return true
+        }
+        return false
+    }
+
+    mutating func reset() {
+        isCollapsed = false
+    }
+}
+
 struct PlayerView: View {
     let book: Book
     @Environment(AudioPlayerService.self) private var player
     @State private var viewModel = PlayerViewModel()
-    @State private var isPlayerCollapsed = false
+    @State private var collapseState = PlayerCollapseState()
 
     var body: some View {
         VStack(spacing: 0) {
             playerHeader
+                .animation(.easeInOut(duration: 0.25), value: collapseState.isCollapsed)
 
             Divider()
 
@@ -17,10 +39,9 @@ struct PlayerView: View {
                     book: book,
                     chapter: chapter,
                     onScrollOffsetChange: { offset in
-                        let shouldCollapse = offset > 20
-                        guard shouldCollapse != isPlayerCollapsed else { return }
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            isPlayerCollapsed = shouldCollapse
+                        var next = collapseState
+                        if next.update(for: offset) {
+                            collapseState = next
                         }
                     }
                 )
@@ -54,16 +75,13 @@ struct PlayerView: View {
             }
         }
         .onChange(of: player.currentChapter?.id) { _, _ in
-            isPlayerCollapsed = false
-        }
-        .onChange(of: player.bookElapsedTime) { _, _ in
-            viewModel.bind(to: player)
+            collapseState = PlayerCollapseState()
         }
     }
 
     @ViewBuilder
     private var playerHeader: some View {
-        if isPlayerCollapsed {
+        if collapseState.isCollapsed {
             collapsedPlayerBar
         } else {
             expandedPlayerContent
@@ -74,7 +92,7 @@ struct PlayerView: View {
         VStack(spacing: 20) {
             artwork
             metadata
-            progressSection
+            PlayerProgressSection(viewModel: viewModel)
             transportControls
             optionsRow
         }
@@ -94,11 +112,9 @@ struct PlayerView: View {
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
 
-                    Text(
-                        "\(TimeFormatting.clock(player.bookElapsedTime)) · \(TimeFormatting.remaining(player.bookElapsedTime, total: player.bookTotalDuration))"
-                    )
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    PlayerElapsedLabel()
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 8)
@@ -113,18 +129,7 @@ struct PlayerView: View {
                 .buttonStyle(.plain)
             }
 
-            Slider(
-                value: $viewModel.scrubValue,
-                in: 0...max(player.bookTotalDuration, 1),
-                onEditingChanged: { editing in
-                    if editing {
-                        viewModel.beginScrubbing(player: player)
-                    } else {
-                        viewModel.endScrubbing(player: player)
-                    }
-                }
-            )
-            .controlSize(.mini)
+            PlayerProgressSection(viewModel: viewModel, controlSize: .mini)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -147,33 +152,6 @@ struct PlayerView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-        }
-    }
-
-    private var progressSection: some View {
-        VStack(spacing: 8) {
-            Slider(
-                value: $viewModel.scrubValue,
-                in: 0...max(player.bookTotalDuration, 1),
-                onEditingChanged: { editing in
-                    if editing {
-                        viewModel.beginScrubbing(player: player)
-                    } else {
-                        viewModel.endScrubbing(player: player)
-                    }
-                }
-            )
-
-            HStack {
-                Text(TimeFormatting.clock(viewModel.isScrubbing ? viewModel.scrubValue : player.bookElapsedTime))
-                Spacer()
-                Text(TimeFormatting.remaining(
-                    viewModel.isScrubbing ? viewModel.scrubValue : player.bookElapsedTime,
-                    total: player.bookTotalDuration
-                ))
-            }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
         }
     }
 
@@ -235,5 +213,54 @@ struct PlayerView: View {
             }
         }
         .foregroundStyle(.primary)
+    }
+}
+
+/// Isolates playback slider updates so transcript scrolling is not invalidated every tick.
+private struct PlayerProgressSection: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Bindable var viewModel: PlayerViewModel
+    var controlSize: ControlSize = .regular
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Slider(
+                value: $viewModel.scrubValue,
+                in: 0...max(player.bookTotalDuration, 1),
+                onEditingChanged: { editing in
+                    if editing {
+                        viewModel.beginScrubbing(player: player)
+                    } else {
+                        viewModel.endScrubbing(player: player)
+                    }
+                }
+            )
+            .controlSize(controlSize)
+
+            HStack {
+                Text(TimeFormatting.clock(viewModel.isScrubbing ? viewModel.scrubValue : player.bookElapsedTime))
+                Spacer()
+                Text(TimeFormatting.remaining(
+                    viewModel.isScrubbing ? viewModel.scrubValue : player.bookElapsedTime,
+                    total: player.bookTotalDuration
+                ))
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+        .onChange(of: player.bookElapsedTime) { _, _ in
+            viewModel.bind(to: player)
+        }
+    }
+}
+
+/// Compact elapsed/remaining label for the collapsed player bar.
+private struct PlayerElapsedLabel: View {
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        Text(
+            "\(TimeFormatting.clock(player.bookElapsedTime)) · \(TimeFormatting.remaining(player.bookElapsedTime, total: player.bookTotalDuration))"
+        )
     }
 }

@@ -8,19 +8,13 @@ struct TranscriptPanel: View {
     var onScrollOffsetChange: ((CGFloat) -> Void)?
 
     @Environment(\.modelContext) private var modelContext
-    @Environment(AudioPlayerService.self) private var player
     @Environment(TranscriptionService.self) private var transcriptionService
 
     @State private var segments: [TranscriptSegment] = []
     @State private var errorMessage: String?
-    @State private var showExportSheet = false
-    @State private var exportURL: URL?
-    @State private var userIsScrolling = false
 
-    private var activeSegmentID: UUID? {
-        guard player.currentBook?.id == book.id,
-              player.currentChapter?.id == chapter.id else { return nil }
-        return transcriptionService.segment(at: player.currentTime, in: segments)?.id
+    private var isProcessingThisChapter: Bool {
+        transcriptionService.isProcessing && transcriptionService.activeChapterID == chapter.id
     }
 
     var body: some View {
@@ -28,24 +22,24 @@ struct TranscriptPanel: View {
             panelHeader
 
             Group {
-                if transcriptionService.isProcessing && transcriptionService.activeChapterID == chapter.id {
-                    loadingView
+                if isProcessingThisChapter {
+                    TranscriptLoadingView(message: transcriptionService.progressMessage)
                 } else if let errorMessage {
                     errorView(errorMessage)
                 } else if segments.isEmpty {
                     emptyView
                 } else {
-                    transcriptScrollView
+                    TranscriptLyricsScrollView(
+                        bookID: book.id,
+                        chapterID: chapter.id,
+                        segments: segments,
+                        onScrollOffsetChange: onScrollOffsetChange
+                    )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color(.systemGroupedBackground))
-        .sheet(isPresented: $showExportSheet) {
-            if let exportURL {
-                ShareSheet(items: [exportURL])
-            }
-        }
         .task(id: chapter.id) {
             startTranscriptLoad(force: false)
         }
@@ -67,22 +61,6 @@ struct TranscriptPanel: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(Color(.systemGroupedBackground))
-    }
-
-    private var loadingView: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-            Text(transcriptionService.progressMessage)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Text("First run downloads the Whisper model (~75 MB).")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
     }
 
     private func errorView(_ message: String) -> some View {
@@ -133,40 +111,15 @@ struct TranscriptPanel: View {
             Image(systemName: "square.and.arrow.up")
         }
         .disabled(segments.isEmpty)
-    }
-
-    private var transcriptScrollView: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 4) {
-                    ForEach(segments) { segment in
-                        TranscriptSegmentRow(
-                            segment: segment,
-                            isActive: segment.id == activeSegmentID,
-                            style: .lyrics
-                        ) {
-                            player.seek(to: segment.startTime)
-                        }
-                        .id(segment.id)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-            }
-            .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                geometry.contentOffset.y + geometry.contentInsets.top
-            } action: { _, offset in
-                onScrollOffsetChange?(offset)
-                userIsScrolling = offset > 24
-            }
-            .onChange(of: activeSegmentID) { _, newID in
-                guard let newID, !userIsScrolling else { return }
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    proxy.scrollTo(newID, anchor: .center)
-                }
+        .sheet(isPresented: $showExportSheet) {
+            if let exportURL {
+                ShareSheet(items: [exportURL])
             }
         }
     }
+
+    @State private var showExportSheet = false
+    @State private var exportURL: URL?
 
     private func loadTranscript(force: Bool) async {
         errorMessage = nil
@@ -204,6 +157,113 @@ struct TranscriptPanel: View {
     }
 }
 
+/// Isolates playback-driven highlight updates from the rest of the transcript panel.
+private struct TranscriptLyricsScrollView: View {
+    let bookID: UUID
+    let chapterID: UUID
+    let segments: [TranscriptSegment]
+    var onScrollOffsetChange: ((CGFloat) -> Void)?
+
+    @Environment(AudioPlayerService.self) private var player
+
+    @State private var activeSegmentID: UUID?
+    @State private var userIsScrolling = false
+    @State private var lastReportedOffset: CGFloat = 0
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 4) {
+                    ForEach(segments) { segment in
+                        TranscriptLyricsLine(
+                            text: segment.text,
+                            isActive: segment.id == activeSegmentID,
+                            onTap: { player.seek(to: segment.startTime) }
+                        )
+                        .equatable()
+                        .id(segment.id)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+            }
+            .scrollIndicators(.hidden)
+            .onScrollPhaseChange { _, newPhase in
+                userIsScrolling = newPhase == .interacting || newPhase == .decelerating
+            }
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top
+            } action: { _, offset in
+                guard abs(offset - lastReportedOffset) > 6 else { return }
+                lastReportedOffset = offset
+                onScrollOffsetChange?(offset)
+            }
+            .onChange(of: player.currentTime) { _, time in
+                updateActiveSegment(for: time, scrollProxy: proxy)
+            }
+            .onAppear {
+                updateActiveSegment(for: player.currentTime, scrollProxy: proxy)
+            }
+        }
+    }
+
+    private func updateActiveSegment(for time: TimeInterval, scrollProxy: ScrollViewProxy) {
+        guard player.currentBook?.id == bookID,
+              player.currentChapter?.id == chapterID else { return }
+
+        let newID = TranscriptSegmentLookup.segment(at: time, in: segments)?.id
+        guard newID != activeSegmentID else { return }
+
+        activeSegmentID = newID
+        guard let newID, !userIsScrolling else { return }
+
+        scrollProxy.scrollTo(newID, anchor: .center)
+    }
+}
+
+/// Lightweight row that only re-renders when its active state or text changes.
+private struct TranscriptLyricsLine: View, Equatable {
+    let text: String
+    let isActive: Bool
+    let onTap: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.text == rhs.text && lhs.isActive == rhs.isActive
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            Text(text)
+                .font(isActive ? .title3.weight(.semibold) : .body)
+                .foregroundStyle(isActive ? Color.primary : Color.secondary.opacity(0.75))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, isActive ? 14 : 8)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct TranscriptLoadingView: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Text("First run downloads the Whisper model (~75 MB).")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+}
+
 enum TranscriptSegmentRowStyle {
     case card
     case lyrics
@@ -236,7 +296,6 @@ struct TranscriptSegmentRow: View {
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.vertical, isActive ? 14 : 8)
-            .animation(.easeInOut(duration: 0.2), value: isActive)
     }
 
     private var cardContent: some View {

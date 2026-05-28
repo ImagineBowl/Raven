@@ -8,6 +8,7 @@ struct RavenApp: App {
 
     init() {
         RavenLibraryStore.setupOnFirstLaunch()
+        BackgroundTranscriptionCoordinator.shared.register()
     }
 
     var body: some Scene {

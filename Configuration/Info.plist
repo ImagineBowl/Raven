@@ -12,5 +12,9 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.Imaginebowl.Raven.transcription</string>
+	</array>
 </dict>
 </plist>

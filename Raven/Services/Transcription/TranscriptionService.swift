@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import BackgroundTasks
 
 enum TranscriptionError: LocalizedError {
     case chapterNotFound
@@ -65,12 +66,16 @@ final class TranscriptionService {
         }
 
         progressMessage = "Transcribing \"\(chapter.title)\"…"
-        let timedSegments: [TimedSegment]
+        var timedSegments: [TimedSegment] = []
         do {
-            timedSegments = try await engine.transcribe(audioURL: audioURL) { [weak self] message in
-                Task { @MainActor in
-                    self?.progressMessage = message
-                }
+            try await BackgroundTranscriptionCoordinator.shared.execute(
+                title: "Transcribing",
+                subtitle: chapter.title
+            ) { task in
+                timedSegments = try await self.runTranscription(
+                    audioURL: audioURL,
+                    backgroundTask: task
+                )
             }
         } catch let error as WhisperModelError {
             chapter.transcriptionState = .failed
@@ -115,5 +120,17 @@ final class TranscriptionService {
 
     func resetWhisperModel() async {
         await engine.resetModelCache()
+    }
+
+    private func runTranscription(
+        audioURL: URL,
+        backgroundTask: BGContinuedProcessingTask
+    ) async throws -> [TimedSegment] {
+        try await engine.transcribe(audioURL: audioURL) { [weak self] message in
+            Task { @MainActor in
+                self?.progressMessage = message
+                backgroundTask.updateTitle("Transcribing", subtitle: message)
+            }
+        }
     }
 }

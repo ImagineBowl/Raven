@@ -27,6 +27,8 @@ struct MiniPlayerBar: View {
             }
             .buttonStyle(.plain)
 
+            BedtimeModeButton(style: .iconOnly)
+
             Button {
                 player.togglePlayPause()
             } label: {

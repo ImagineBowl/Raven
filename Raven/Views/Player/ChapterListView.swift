@@ -4,6 +4,7 @@ struct ChapterListView: View {
     let book: Book
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         NavigationStack {
@@ -19,7 +20,6 @@ struct ChapterListView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(chapter.title)
-                                    .foregroundStyle(.primary)
                                 Text(TimeFormatting.clock(chapter.duration))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -32,10 +32,12 @@ struct ChapterListView: View {
                             }
                             if isCurrentChapter(index) {
                                 Image(systemName: player.isPlaying ? "waveform" : "pause.fill")
-                                    .foregroundStyle(Color.accentColor)
+                                    .foregroundStyle(currentChapterIndicatorColor)
                             }
                         }
+                        .foregroundStyle(.primary)
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .navigationTitle("Chapters")
@@ -51,5 +53,9 @@ struct ChapterListView: View {
 
     private func isCurrentChapter(_ index: Int) -> Bool {
         player.currentBook?.id == book.id && player.currentChapterIndex == index
+    }
+
+    private var currentChapterIndicatorColor: Color {
+        colorScheme == .dark ? .primary : Color.accentColor
     }
 }

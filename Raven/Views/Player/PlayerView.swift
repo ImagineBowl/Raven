@@ -62,13 +62,6 @@ struct PlayerView: View {
         .sheet(isPresented: $viewModel.showChapterList) {
             ChapterListView(book: book)
         }
-        .confirmationDialog("Sleep Timer", isPresented: $viewModel.showSleepTimer) {
-            ForEach(viewModel.sleepTimerOptions, id: \.self) { minutes in
-                Button(viewModel.sleepTimerLabel(for: minutes)) {
-                    player.setSleepTimer(minutes: minutes)
-                }
-            }
-        }
         .task(id: book.id) {
             if player.currentBook?.id != book.id {
                 try? await player.load(book, autoPlay: false)
@@ -118,6 +111,8 @@ struct PlayerView: View {
                 }
 
                 Spacer(minLength: 8)
+
+                BedtimeModeButton(style: .iconOnly)
 
                 Button {
                     player.togglePlayPause()
@@ -202,15 +197,7 @@ struct PlayerView: View {
 
             Spacer()
 
-            Button {
-                viewModel.showSleepTimer = true
-            } label: {
-                Label(
-                    player.sleepTimerEndDate == nil ? "Timer" : "Timer On",
-                    systemImage: "moon.zzz"
-                )
-                .font(.subheadline)
-            }
+            BedtimeModeButton()
         }
         .foregroundStyle(.primary)
     }

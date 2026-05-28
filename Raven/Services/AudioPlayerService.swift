@@ -13,6 +13,7 @@ final class AudioPlayerService {
     private(set) var isPlaying = false
     private(set) var playbackRate: Float = 1.0
     private(set) var sleepTimerEndDate: Date?
+    private(set) var isBedtimeModeEnabled = false
 
     var currentChapter: Chapter? {
         guard let book = currentBook else { return nil }
@@ -142,18 +143,36 @@ final class AudioPlayerService {
         saveProgress()
     }
 
+    func toggleBedtimeMode() {
+        setBedtimeMode(enabled: !isBedtimeModeEnabled)
+    }
+
+    func setBedtimeMode(enabled: Bool) {
+        if enabled {
+            isBedtimeModeEnabled = true
+            setSleepTimer(minutes: BedtimeSettings.minutes)
+        } else {
+            isBedtimeModeEnabled = false
+            setSleepTimer(minutes: nil)
+        }
+    }
+
     func setSleepTimer(minutes: Int?) {
         sleepTimerTask?.cancel()
         sleepTimerTask = nil
         sleepTimerEndDate = nil
 
         guard let minutes, minutes > 0 else { return }
+
         sleepTimerEndDate = Date().addingTimeInterval(TimeInterval(minutes * 60))
         sleepTimerTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(minutes * 60))
             guard !Task.isCancelled else { return }
-            self?.pause()
-            self?.sleepTimerEndDate = nil
+            await MainActor.run {
+                self?.pause()
+                self?.sleepTimerEndDate = nil
+                self?.isBedtimeModeEnabled = false
+            }
         }
     }
 
@@ -261,6 +280,7 @@ final class AudioPlayerService {
         removePlayerObservers()
         player?.pause()
         player = nil
+        setBedtimeMode(enabled: false)
         saveProgress()
         releaseFolderAccess()
         currentBook = nil

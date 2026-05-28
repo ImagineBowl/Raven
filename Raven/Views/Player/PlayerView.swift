@@ -1,3 +1,10 @@
+//
+//  PlayerView.swift
+//  Raven
+//
+//  Created by Ahsan Minhas on 28/05/2026.
+//
+
 import SwiftUI
 
 /// Applies scroll-offset hysteresis so collapse state does not thrash while scrolling.

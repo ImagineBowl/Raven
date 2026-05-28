@@ -1,3 +1,10 @@
+//
+//  TranscriptionService.swift
+//  Raven
+//
+//  Created by Ahsan Minhas on 28/05/2026.
+//
+
 @preconcurrency import BackgroundTasks
 import Foundation
 import SwiftData

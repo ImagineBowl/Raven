@@ -1,3 +1,10 @@
+//
+//  NowPlayingManager.swift
+//  Raven
+//
+//  Created by Ahsan Minhas on 28/05/2026.
+//
+
 import UIKit
 import Foundation
 import MediaPlayer

@@ -10,12 +10,15 @@ import Foundation
 import WhisperKit
 
 enum WhisperModelError: LocalizedError {
+    case notInstalled
     case downloadFailed(String)
     case modelFilesMissing(String)
     case loadFailed(String)
 
     var errorDescription: String? {
         switch self {
+        case .notInstalled:
+            "The Whisper model is not downloaded yet. Download it first to generate transcripts."
         case .downloadFailed(let detail):
             "Could not download the Whisper model. Check your internet connection and try again.\n\(detail)"
         case .modelFilesMissing(let path):
@@ -31,7 +34,7 @@ actor WhisperKitTranscriptionEngine {
 
     private static let modelVariant = "openai_whisper-tiny"
     private static let modelRepo = "argmaxinc/whisperkit-coreml"
-    private static let estimatedDownloadSize = "~75 MB"
+    static let estimatedDownloadSize = "~75 MB"
 
     private var whisperKit: WhisperKit?
     private var loadTask: Task<WhisperKit, Error>?
@@ -62,6 +65,21 @@ actor WhisperKitTranscriptionEngine {
                 endTime: TimeInterval(segment.end),
                 text: text
             )
+        }
+    }
+
+    func isModelInstalled() -> Bool {
+        cachedModelFolderIfValid() != nil
+    }
+
+    func downloadModelIfNeeded(onProgress: (@Sendable (String) -> Void)? = nil) async throws {
+        guard !isModelInstalled() else { return }
+
+        onProgress?("Downloading Whisper model (\(Self.estimatedDownloadSize))…")
+        let folder = try await downloadModelFromRemote(onProgress: onProgress)
+        guard Self.validateModel(at: folder) else {
+            removeDownloadedModel()
+            throw WhisperModelError.modelFilesMissing(Self.melSpectrogramPath(in: folder))
         }
     }
 
@@ -102,20 +120,13 @@ actor WhisperKitTranscriptionEngine {
     private func prepareWhisperKit(onProgress: (@Sendable (String) -> Void)? = nil) async throws -> WhisperKit {
         onProgress?("Checking Whisper model…")
 
-        var modelFolder = cachedModelFolderIfValid()
-        if modelFolder == nil {
-            onProgress?("Downloading Whisper model (\(Self.estimatedDownloadSize))…")
-            modelFolder = try await downloadModel(onProgress: onProgress)
+        guard var modelFolder = cachedModelFolderIfValid() else {
+            throw WhisperModelError.notInstalled
         }
 
-        guard let modelFolder, Self.validateModel(at: modelFolder) else {
+        if !Self.validateModel(at: modelFolder) {
             removeDownloadedModel()
-            onProgress?("Re-downloading Whisper model…")
-            let redownloaded = try await downloadModel(onProgress: onProgress)
-            guard Self.validateModel(at: redownloaded) else {
-                throw WhisperModelError.modelFilesMissing(Self.melSpectrogramPath(in: redownloaded))
-            }
-            return try await initializeWhisperKit(modelFolder: redownloaded, onProgress: onProgress)
+            throw WhisperModelError.notInstalled
         }
 
         do {
@@ -123,11 +134,12 @@ actor WhisperKitTranscriptionEngine {
         } catch {
             removeDownloadedModel()
             onProgress?("Model load failed. Downloading fresh copy…")
-            let freshFolder = try await downloadModel(onProgress: onProgress)
+            let freshFolder = try await downloadModelFromRemote(onProgress: onProgress)
             guard Self.validateModel(at: freshFolder) else {
                 throw WhisperModelError.modelFilesMissing(Self.melSpectrogramPath(in: freshFolder))
             }
-            return try await initializeWhisperKit(modelFolder: freshFolder, onProgress: onProgress)
+            modelFolder = freshFolder
+            return try await initializeWhisperKit(modelFolder: modelFolder, onProgress: onProgress)
         }
     }
 
@@ -157,7 +169,7 @@ actor WhisperKitTranscriptionEngine {
         }
     }
 
-    private func downloadModel(onProgress: (@Sendable (String) -> Void)? = nil) async throws -> URL {
+    private func downloadModelFromRemote(onProgress: (@Sendable (String) -> Void)? = nil) async throws -> URL {
         do {
             return try await WhisperKit.download(
                 variant: Self.modelVariant,

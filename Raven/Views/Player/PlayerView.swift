@@ -10,8 +10,34 @@ import SwiftUI
 /// Applies scroll-offset hysteresis so collapse state does not thrash while scrolling.
 struct PlayerCollapseState {
     private(set) var isCollapsed = false
+    private var keepsExpanded = false
+    private var keepsCollapsed = false
+
+    mutating func expandManually() {
+        isCollapsed = false
+        keepsExpanded = true
+        keepsCollapsed = false
+    }
+
+    mutating func collapseManually() {
+        isCollapsed = true
+        keepsCollapsed = true
+        keepsExpanded = false
+    }
 
     mutating func update(for offset: CGFloat) -> Bool {
+        if keepsCollapsed {
+            return false
+        }
+
+        if keepsExpanded {
+            if offset < 8 {
+                keepsExpanded = false
+            } else {
+                return false
+            }
+        }
+
         if !isCollapsed, offset > 48 {
             isCollapsed = true
             return true
@@ -25,6 +51,8 @@ struct PlayerCollapseState {
 
     mutating func reset() {
         isCollapsed = false
+        keepsExpanded = false
+        keepsCollapsed = false
     }
 }
 
@@ -52,6 +80,8 @@ struct PlayerView: View {
                 TranscriptPanel(
                     book: book,
                     chapter: chapter,
+                    isPlayerCollapsed: collapseState.isCollapsed,
+                    onPlayerCollapseChange: setPlayerCollapsed,
                     onScrollOffsetChange: { offset in
                         var next = collapseState
                         if next.update(for: offset) {
@@ -82,6 +112,24 @@ struct PlayerView: View {
         .onChange(of: player.currentChapter?.id) { _, _ in
             withAnimation(Self.collapseAnimation) {
                 collapseState = PlayerCollapseState()
+            }
+        }
+    }
+
+    private func setPlayerCollapsed(_ collapsed: Bool) {
+        if collapsed {
+            guard !collapseState.isCollapsed else { return }
+            var next = collapseState
+            next.collapseManually()
+            withAnimation(Self.collapseAnimation) {
+                collapseState = next
+            }
+        } else {
+            guard collapseState.isCollapsed else { return }
+            var next = collapseState
+            next.expandManually()
+            withAnimation(Self.collapseAnimation) {
+                collapseState = next
             }
         }
     }

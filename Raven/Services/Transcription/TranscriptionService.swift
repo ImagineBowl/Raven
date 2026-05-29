@@ -35,23 +35,26 @@ enum TranscriptionError: LocalizedError {
 @MainActor
 @Observable
 final class TranscriptionService {
+    static let whisperModelDownloadSize = WhisperKitTranscriptionEngine.estimatedDownloadSize
+
     private(set) var activeChapterID: UUID?
     private(set) var progressMessage = ""
     private(set) var isProcessing = false
+    private(set) var isDownloadingModel = false
 
     private let engine = WhisperKitTranscriptionEngine.shared
     private var activeTranscriptionTask: Task<[TimedSegment], Error>?
     private var processingChapter: Chapter?
 
-    /// Stops in-flight transcription when the app is minimized or the device is locked.
+    /// Stops in-flight transcription or model download when the app is minimized or the device is locked.
     func suspendForBackground(modelContext: ModelContext) {
-        guard isProcessing else { return }
+        guard isProcessing || isDownloadingModel else { return }
 
         activeTranscriptionTask?.cancel()
         Task { await BackgroundTranscriptionCoordinator.shared.cancel() }
         Task { await engine.cancelActiveWork() }
 
-        if let chapter = processingChapter {
+        if isProcessing, let chapter = processingChapter {
             chapter.transcriptionState = .none
             try? modelContext.save()
         }
@@ -59,8 +62,35 @@ final class TranscriptionService {
         activeTranscriptionTask = nil
         processingChapter = nil
         isProcessing = false
+        isDownloadingModel = false
         activeChapterID = nil
         progressMessage = ""
+    }
+
+    func isWhisperModelInstalled() async -> Bool {
+        await engine.isModelInstalled()
+    }
+
+    func downloadWhisperModel() async throws {
+        guard !isDownloadingModel else { return }
+
+        isDownloadingModel = true
+        progressMessage = "Checking Whisper model…"
+
+        defer {
+            isDownloadingModel = false
+            progressMessage = ""
+        }
+
+        do {
+            try await engine.downloadModelIfNeeded { message in
+                Task { @MainActor in
+                    self.progressMessage = message
+                }
+            }
+        } catch let error as WhisperModelError {
+            throw TranscriptionError.modelUnavailable(error.localizedDescription)
+        }
     }
 
     /// Returns cached segments or transcribes the chapter, saves locally, then returns segments.

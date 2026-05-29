@@ -12,6 +12,8 @@ import UIKit
 struct TranscriptPanel: View {
     let book: Book
     let chapter: Chapter
+    var isPlayerCollapsed = false
+    var onPlayerCollapseChange: ((Bool) -> Void)?
     var onScrollOffsetChange: ((CGFloat) -> Void)?
     var usesPlayerDarkTheme = false
 
@@ -20,9 +22,19 @@ struct TranscriptPanel: View {
 
     @State private var segments: [TranscriptSegment] = []
     @State private var errorMessage: String?
+    @State private var modelInstalled = false
+    @State private var modelStatusChecked = false
 
     private var isProcessingThisChapter: Bool {
         transcriptionService.isProcessing && transcriptionService.activeChapterID == chapter.id
+    }
+
+    private var hasTranscriptContent: Bool {
+        chapter.hasTranscript || !segments.isEmpty
+    }
+
+    private var showsPlayerCollapseHandle: Bool {
+        hasTranscriptContent && !isProcessingThisChapter && !transcriptionService.isDownloadingModel
     }
 
     var body: some View {
@@ -30,10 +42,25 @@ struct TranscriptPanel: View {
             panelHeader
 
             Group {
-                if isProcessingThisChapter {
-                    TranscriptLoadingView(message: transcriptionService.progressMessage)
+                if transcriptionService.isDownloadingModel {
+                    TranscriptLoadingView(
+                        message: transcriptionService.progressMessage,
+                        showsDownloadNote: true,
+                        usesPlayerDarkTheme: usesPlayerDarkTheme
+                    )
+                } else if isProcessingThisChapter {
+                    TranscriptLoadingView(
+                        message: transcriptionService.progressMessage,
+                        showsDownloadNote: false,
+                        usesPlayerDarkTheme: usesPlayerDarkTheme
+                    )
                 } else if let errorMessage {
                     errorView(errorMessage)
+                } else if !modelStatusChecked {
+                    ProgressView()
+                        .tint(usesPlayerDarkTheme ? .white : .accentColor)
+                } else if segments.isEmpty && !modelInstalled {
+                    modelDownloadPrompt
                 } else if segments.isEmpty {
                     emptyView
                 } else {
@@ -50,23 +77,40 @@ struct TranscriptPanel: View {
         }
         .background(usesPlayerDarkTheme ? RavenDesign.Colors.playerSurface : Color(.systemGroupedBackground))
         .task(id: chapter.id) {
-            startTranscriptLoad(force: false)
+            await refreshPanelState()
         }
     }
 
-    private func startTranscriptLoad(force: Bool) {
-        Task {
-            await loadTranscript(force: force)
+    private func refreshPanelState() async {
+        errorMessage = nil
+        if chapter.hasTranscript {
+            segments = sanitized(chapter.sortedSegments)
+        } else {
+            segments = []
         }
+        modelInstalled = await transcriptionService.isWhisperModelInstalled()
+        modelStatusChecked = true
     }
 
     private var panelHeader: some View {
-        HStack {
-            Text("Transcript")
-                .font(.headline)
-                .foregroundStyle(usesPlayerDarkTheme ? .white : .primary)
-            Spacer()
-            exportMenu
+        ZStack {
+            HStack {
+                Text("Transcript")
+                    .font(.headline)
+                    .foregroundStyle(usesPlayerDarkTheme ? .white : .primary)
+
+                Spacer(minLength: 0)
+
+                exportMenu
+            }
+
+            if showsPlayerCollapseHandle, let onPlayerCollapseChange {
+                PlayerCollapseHandle(
+                    isCollapsed: isPlayerCollapsed,
+                    usesPlayerDarkTheme: usesPlayerDarkTheme,
+                    onSetCollapsed: onPlayerCollapseChange
+                )
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -74,35 +118,53 @@ struct TranscriptPanel: View {
     }
 
     private func errorView(_ message: String) -> some View {
-        ContentUnavailableView {
-            Label("Transcription Failed", systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(message)
-        } actions: {
-            Button("Try Again") {
-                Task { await loadTranscript(force: true) }
-            }
-            Button("Reset Whisper Model") {
-                Task {
-                    await transcriptionService.resetWhisperModel()
-                    await loadTranscript(force: true)
+        TranscriptPlaceholderView(
+            title: "Transcription Failed",
+            systemImage: "exclamationmark.triangle",
+            message: message,
+            usesPlayerDarkTheme: usesPlayerDarkTheme
+        ) {
+            VStack(spacing: 12) {
+                TranscriptPlaceholderButton(title: "Try Again", usesPlayerDarkTheme: usesPlayerDarkTheme) {
+                    Task { await loadTranscript(force: true) }
                 }
+                Button("Reset Whisper Model") {
+                    Task {
+                        await transcriptionService.resetWhisperModel()
+                        await refreshPanelState()
+                    }
+                }
+                .font(RavenDesign.Typography.bodyUI())
+                .foregroundStyle(usesPlayerDarkTheme ? .white.opacity(0.6) : .secondary)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var modelDownloadPrompt: some View {
+        TranscriptPlaceholderView(
+            title: "Whisper Model Required",
+            systemImage: "arrow.down.circle",
+            message: "Transcripts run on-device with Whisper. Nothing is downloaded until you choose to.",
+            footnote: "One-time download · \(TranscriptionService.whisperModelDownloadSize)",
+            usesPlayerDarkTheme: usesPlayerDarkTheme
+        ) {
+            TranscriptPlaceholderButton(title: "Download Model", usesPlayerDarkTheme: usesPlayerDarkTheme) {
+                Task { await downloadModel() }
+            }
+        }
     }
 
     private var emptyView: some View {
-        ContentUnavailableView {
-            Label("No Transcript", systemImage: "text.quote")
-        } description: {
-            Text("Generate a local transcript for this chapter.")
-        } actions: {
-            Button("Generate Transcript") {
+        TranscriptPlaceholderView(
+            title: "No Transcript",
+            systemImage: "text.quote",
+            message: "Generate a local transcript for this chapter.",
+            usesPlayerDarkTheme: usesPlayerDarkTheme
+        ) {
+            TranscriptPlaceholderButton(title: "Generate Transcript", usesPlayerDarkTheme: usesPlayerDarkTheme) {
                 Task { await loadTranscript(force: true) }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var exportMenu: some View {
@@ -130,6 +192,16 @@ struct TranscriptPanel: View {
 
     @State private var showExportSheet = false
     @State private var exportURL: URL?
+
+    private func downloadModel() async {
+        errorMessage = nil
+        do {
+            try await transcriptionService.downloadWhisperModel()
+            modelInstalled = await transcriptionService.isWhisperModelInstalled()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
 
     private func loadTranscript(force: Bool) async {
         errorMessage = nil
@@ -249,18 +321,7 @@ struct TranscriptPeekView: View {
     private func loadSegments() async {
         if chapter.hasTranscript {
             segments = sanitized(chapter.sortedSegments)
-            return
-        }
-
-        do {
-            let loaded = try await transcriptionService.ensureTranscript(
-                for: chapter,
-                book: book,
-                modelContext: modelContext
-            )
-            segments = sanitized(loaded)
-            try? modelContext.save()
-        } catch {
+        } else {
             segments = []
         }
     }
@@ -370,20 +431,127 @@ private struct TranscriptLyricsLine: View, Equatable {
     }
 }
 
+private struct PlayerCollapseHandle: View {
+    let isCollapsed: Bool
+    var usesPlayerDarkTheme: Bool
+    let onSetCollapsed: (Bool) -> Void
+
+    var body: some View {
+        Capsule()
+            .fill(usesPlayerDarkTheme ? .white.opacity(0.35) : Color.secondary.opacity(0.4))
+            .frame(width: 32, height: 4)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+            .accessibilityLabel(isCollapsed ? "Expand player" : "Collapse player")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Double tap, swipe down to expand, or swipe up to collapse")
+            .onTapGesture {
+                onSetCollapsed(!isCollapsed)
+            }
+            .gesture(
+                DragGesture(minimumDistance: 8)
+                    .onEnded { value in
+                        if value.translation.height > 20 {
+                            onSetCollapsed(false)
+                        } else if value.translation.height < -20 {
+                            onSetCollapsed(true)
+                        }
+                    }
+            )
+    }
+}
+
+private struct TranscriptPlaceholderView<Actions: View>: View {
+    let title: String
+    let systemImage: String
+    let message: String
+    var footnote: String?
+    var usesPlayerDarkTheme: Bool
+    @ViewBuilder let actions: () -> Actions
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer(minLength: 0)
+
+            Image(systemName: systemImage)
+                .font(.system(size: 44))
+                .foregroundStyle(usesPlayerDarkTheme ? .white.opacity(0.85) : Color.accentColor)
+
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(RavenDesign.Typography.headlineMedium())
+                    .foregroundStyle(usesPlayerDarkTheme ? .white : .primary)
+                    .multilineTextAlignment(.center)
+
+                Text(message)
+                    .font(RavenDesign.Typography.bodyUI())
+                    .foregroundStyle(usesPlayerDarkTheme ? .white.opacity(0.65) : .secondary)
+                    .multilineTextAlignment(.center)
+
+                if let footnote {
+                    Text(footnote)
+                        .font(RavenDesign.Typography.labelCaps())
+                        .foregroundStyle(usesPlayerDarkTheme ? .white.opacity(0.45) : Color.secondary.opacity(0.75))
+                        .textCase(.uppercase)
+                        .tracking(0.8)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 4)
+                }
+            }
+            .padding(.horizontal, 24)
+
+            actions()
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+}
+
+private struct TranscriptPlaceholderButton: View {
+    let title: String
+    var usesPlayerDarkTheme: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(RavenDesign.Typography.bodyUI().weight(.semibold))
+                .foregroundStyle(usesPlayerDarkTheme ? RavenDesign.Colors.primary : RavenDesign.Colors.onPrimary)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 12)
+                .background(
+                    usesPlayerDarkTheme ? Color.white : RavenDesign.Colors.primary,
+                    in: Capsule()
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 private struct TranscriptLoadingView: View {
     let message: String
+    var showsDownloadNote = false
+    var usesPlayerDarkTheme = false
 
     var body: some View {
         VStack(spacing: 12) {
             ProgressView()
+                .tint(usesPlayerDarkTheme ? .white : .accentColor)
             Text(message)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(usesPlayerDarkTheme ? .white.opacity(0.75) : .secondary)
                 .multilineTextAlignment(.center)
-            Text("First run downloads the Whisper model (~75 MB).")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
+            if showsDownloadNote {
+                Text("One-time download · \(TranscriptionService.whisperModelDownloadSize)")
+                    .font(RavenDesign.Typography.labelCaps())
+                    .foregroundStyle(usesPlayerDarkTheme ? .white.opacity(0.45) : Color.secondary.opacity(0.75))
+                    .textCase(.uppercase)
+                    .tracking(0.8)
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()

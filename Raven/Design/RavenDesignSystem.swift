@@ -18,6 +18,8 @@ enum RavenDesign {
         static let surfaceContainerHighest = Color(red: 0.890, green: 0.886, blue: 0.898)
         static let surfaceLowest = Color.white
         static let surfaceContainer = Color(red: 0.937, green: 0.929, blue: 0.941)
+        static let secondaryContainer = Color(red: 0.902, green: 0.886, blue: 0.863)
+        static let primaryContainer = Color(red: 0.102, green: 0.169, blue: 0.267)
         static let playerSurface = Color(red: 0.200, green: 0.200, blue: 0.220)
         static let primaryFixedDim = Color(red: 0.714, green: 0.780, blue: 0.906)
     }

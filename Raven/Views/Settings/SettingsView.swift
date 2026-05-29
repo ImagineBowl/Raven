@@ -14,6 +14,7 @@ struct SettingsView: View {
     @Environment(AudioPlayerService.self) private var player
 
     @AppStorage(BedtimeSettings.storageKey) private var bedtimeMinutes = BedtimeSettings.defaultMinutes
+    @AppStorage(TranscriptionSettings.storageKey) private var engineKindRaw = TranscriptionEngineKind.appleSpeech.rawValue
     @State private var viewModel = LibraryViewModel()
     @State private var presentedPlayerBook: Book?
     @State private var showAbout = false
@@ -26,6 +27,7 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: RavenDesign.Spacing.stackLarge) {
                 bedtimeSection
+                transcriptionSection
                 librarySection
                 aboutSection
                 versionFooter
@@ -44,6 +46,7 @@ struct SettingsView: View {
                 MiniPlayerBar(book: book) {
                     presentedPlayerBook = book
                 }
+                .padding(.bottom)
                 .padding(.horizontal, RavenDesign.Spacing.pageMargin)
             }
         }
@@ -147,6 +150,95 @@ struct SettingsView: View {
                 .foregroundStyle(RavenDesign.Colors.onSurfaceVariant.opacity(0.8))
                 .padding(.horizontal, 4)
         }
+    }
+
+    private var transcriptionSection: some View {
+        VStack(alignment: .leading, spacing: RavenDesign.Spacing.stackSmall) {
+            RavenLibraryCard {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 12) {
+                        SettingsIconBadge(systemImage: "text.quote", color: Color(red: 0.345, green: 0.337, blue: 0.839))
+                        Text("Transcription")
+                            .font(RavenDesign.Typography.bodyUI().weight(.medium))
+                            .foregroundStyle(RavenDesign.Colors.primary)
+                        Spacer()
+                    }
+
+                    VStack(spacing: 10) {
+                        ForEach(TranscriptionEngineKind.allCases) { kind in
+                            transcriptionEngineOption(kind)
+                        }
+                    }
+                }
+                .padding(16)
+            }
+
+            Text("Changing engines affects new transcripts. Regenerate a chapter to replace an existing one.")
+                .font(.system(size: 13))
+                .foregroundStyle(RavenDesign.Colors.onSurfaceVariant.opacity(0.8))
+                .padding(.horizontal, 4)
+        }
+    }
+
+    private func transcriptionEngineOption(_ kind: TranscriptionEngineKind) -> some View {
+        let isSelected = selectedEngineKind == kind
+
+        return Button {
+            engineKindRaw = kind.rawValue
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(kind.title)
+                        .font(RavenDesign.Typography.bodyUI().weight(.semibold))
+                        .foregroundStyle(RavenDesign.Colors.primary)
+
+                    if kind.isRecommended {
+                        Text("Recommended")
+                            .font(RavenDesign.Typography.labelCaps())
+                            .foregroundStyle(RavenDesign.Colors.primary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(RavenDesign.Colors.primary.opacity(0.1), in: Capsule())
+                    }
+
+                    Spacer()
+
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(RavenDesign.Colors.primary)
+                    }
+                }
+
+                Text(kind.summary)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(RavenDesign.Colors.onSurfaceVariant)
+
+                Text(kind.detail)
+                    .font(.system(size: 13))
+                    .foregroundStyle(RavenDesign.Colors.onSurfaceVariant.opacity(0.85))
+                    .multilineTextAlignment(.leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(
+                isSelected
+                    ? RavenDesign.Colors.primary.opacity(0.08)
+                    : RavenDesign.Colors.surfaceContainerHighest.opacity(0.55),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? RavenDesign.Colors.primary.opacity(0.35) : Color.clear,
+                        lineWidth: 1
+                    )
+            }
+        }
+        .buttonStyle(RavenPressButtonStyle())
+    }
+
+    private var selectedEngineKind: TranscriptionEngineKind {
+        TranscriptionEngineKind(rawValue: engineKindRaw) ?? TranscriptionSettings.defaultEngineKind
     }
 
     private var librarySection: some View {

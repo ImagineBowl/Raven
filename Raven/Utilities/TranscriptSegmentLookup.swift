@@ -8,9 +8,17 @@
 import Foundation
 
 enum TranscriptSegmentLookup {
-    /// Binary search for the segment active at `time` in sorted segments.
+    /// Returns the lyric line active at `time` in sorted segments.
     static func segment(at time: TimeInterval, in segments: [TranscriptSegment]) -> TranscriptSegment? {
         guard !segments.isEmpty else { return nil }
+
+        if time <= segments[0].startTime {
+            return segments[0]
+        }
+
+        if time >= segments[segments.count - 1].endTime {
+            return segments[segments.count - 1]
+        }
 
         var lower = 0
         var upper = segments.count - 1
@@ -21,13 +29,13 @@ enum TranscriptSegmentLookup {
 
             if time < segment.startTime {
                 upper = mid - 1
-            } else if time >= segment.endTime {
+            } else if mid + 1 < segments.count, time >= segments[mid + 1].startTime {
                 lower = mid + 1
             } else {
                 return segment
             }
         }
 
-        return nil
+        return segments[lower]
     }
 }

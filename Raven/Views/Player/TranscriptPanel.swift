@@ -22,8 +22,10 @@ struct TranscriptPanel: View {
 
     @State private var segments: [TranscriptSegment] = []
     @State private var errorMessage: String?
-    @State private var modelInstalled = false
-    @State private var modelStatusChecked = false
+    @State private var setupRequirement: TranscriptionSetupRequirement?
+    @State private var readinessChecked = false
+
+    @AppStorage(TranscriptionSettings.storageKey) private var engineKindRaw = TranscriptionEngineKind.appleSpeech.rawValue
 
     private var isProcessingThisChapter: Bool {
         transcriptionService.isProcessing && transcriptionService.activeChapterID == chapter.id
@@ -34,7 +36,7 @@ struct TranscriptPanel: View {
     }
 
     private var showsPlayerCollapseHandle: Bool {
-        hasTranscriptContent && !isProcessingThisChapter && !transcriptionService.isDownloadingModel
+        hasTranscriptContent && !isProcessingThisChapter && !transcriptionService.isPreparingEngine
     }
 
     var body: some View {
@@ -42,25 +44,25 @@ struct TranscriptPanel: View {
             panelHeader
 
             Group {
-                if transcriptionService.isDownloadingModel {
+                if transcriptionService.isPreparingEngine {
                     TranscriptLoadingView(
                         message: transcriptionService.progressMessage,
-                        showsDownloadNote: true,
+                        footnote: preparationFootnote,
                         usesPlayerDarkTheme: usesPlayerDarkTheme
                     )
                 } else if isProcessingThisChapter {
                     TranscriptLoadingView(
                         message: transcriptionService.progressMessage,
-                        showsDownloadNote: false,
+                        footnote: nil,
                         usesPlayerDarkTheme: usesPlayerDarkTheme
                     )
                 } else if let errorMessage {
                     errorView(errorMessage)
-                } else if !modelStatusChecked {
+                } else if !readinessChecked {
                     ProgressView()
                         .tint(usesPlayerDarkTheme ? .white : .accentColor)
-                } else if segments.isEmpty && !modelInstalled {
-                    modelDownloadPrompt
+                } else if segments.isEmpty, let setupRequirement {
+                    engineSetupPrompt(requirement: setupRequirement)
                 } else if segments.isEmpty {
                     emptyView
                 } else {
@@ -79,17 +81,53 @@ struct TranscriptPanel: View {
         .task(id: chapter.id) {
             await refreshPanelState()
         }
+        .onChange(of: engineKindRaw) { _, _ in
+            Task { await refreshPanelState() }
+        }
+    }
+
+    private var preparationFootnote: String? {
+        switch TranscriptionSettings.engineKind {
+        case .appleSpeech:
+            nil
+        case .whisper:
+            "One-time download · \(TranscriptionService.whisperModelDownloadSize)"
+        }
     }
 
     private func refreshPanelState() async {
         errorMessage = nil
         if chapter.hasTranscript {
             segments = sanitized(chapter.sortedSegments)
+            if TranscriptSegmentGrouper.isWordLevel(segments) {
+                regroupStoredSegments()
+            }
         } else {
             segments = []
         }
-        modelInstalled = await transcriptionService.isWhisperModelInstalled()
-        modelStatusChecked = true
+
+        switch await transcriptionService.readinessStatus() {
+        case .ready:
+            setupRequirement = nil
+        case .needsSetup(let requirement):
+            setupRequirement = requirement
+        }
+        readinessChecked = true
+    }
+
+    private func regroupStoredSegments() {
+        let grouped = TranscriptSegmentGrouper.normalizeStored(segments)
+        chapter.segments.forEach { modelContext.delete($0) }
+        chapter.segments = grouped.enumerated().map { index, segment in
+            TranscriptSegment(
+                startTime: segment.startTime,
+                endTime: segment.endTime,
+                text: segment.text,
+                sortOrder: index
+            )
+        }
+        try? modelContext.save()
+        segments = sanitized(chapter.sortedSegments)
     }
 
     private var panelHeader: some View {
@@ -128,28 +166,47 @@ struct TranscriptPanel: View {
                 TranscriptPlaceholderButton(title: "Try Again", usesPlayerDarkTheme: usesPlayerDarkTheme) {
                     Task { await loadTranscript(force: true) }
                 }
-                Button("Reset Whisper Model") {
-                    Task {
-                        await transcriptionService.resetWhisperModel()
-                        await refreshPanelState()
+                if TranscriptionSettings.engineKind == .whisper {
+                    Button("Reset Whisper Model") {
+                        Task {
+                            await transcriptionService.resetEngineStorage()
+                            await refreshPanelState()
+                        }
                     }
+                    .font(RavenDesign.Typography.bodyUI())
+                    .foregroundStyle(usesPlayerDarkTheme ? .white.opacity(0.6) : .secondary)
                 }
-                .font(RavenDesign.Typography.bodyUI())
-                .foregroundStyle(usesPlayerDarkTheme ? .white.opacity(0.6) : .secondary)
             }
         }
     }
 
-    private var modelDownloadPrompt: some View {
-        TranscriptPlaceholderView(
-            title: "Whisper Model Required",
-            systemImage: "arrow.down.circle",
-            message: "Transcripts run on-device with Whisper. Nothing is downloaded until you choose to.",
-            footnote: "One-time download · \(TranscriptionService.whisperModelDownloadSize)",
-            usesPlayerDarkTheme: usesPlayerDarkTheme
-        ) {
-            TranscriptPlaceholderButton(title: "Download Model", usesPlayerDarkTheme: usesPlayerDarkTheme) {
-                Task { await downloadModel() }
+    @ViewBuilder
+    private func engineSetupPrompt(requirement: TranscriptionSetupRequirement) -> some View {
+        switch requirement {
+        case .speechAuthorization:
+            TranscriptPlaceholderView(
+                title: "Speech Recognition Required",
+                systemImage: "waveform.badge.mic",
+                message: "Raven uses on-device Apple Speech to transcribe this chapter. Nothing runs until you allow access.",
+                footnote: "Uses \(TranscriptionSettings.engineKind.title)",
+                usesPlayerDarkTheme: usesPlayerDarkTheme
+            ) {
+                TranscriptPlaceholderButton(title: "Enable Transcription", usesPlayerDarkTheme: usesPlayerDarkTheme) {
+                    Task { await prepareEngine() }
+                }
+            }
+
+        case .whisperModelDownload(let size):
+            TranscriptPlaceholderView(
+                title: "Whisper Model Required",
+                systemImage: "arrow.down.circle",
+                message: "Transcripts run on-device with Whisper. Nothing is downloaded until you choose to.",
+                footnote: "One-time download · \(size)",
+                usesPlayerDarkTheme: usesPlayerDarkTheme
+            ) {
+                TranscriptPlaceholderButton(title: "Download Model", usesPlayerDarkTheme: usesPlayerDarkTheme) {
+                    Task { await prepareEngine() }
+                }
             }
         }
     }
@@ -169,6 +226,12 @@ struct TranscriptPanel: View {
 
     private var exportMenu: some View {
         Menu {
+            if !segments.isEmpty {
+                Button("Regenerate Transcript") {
+                    Task { await loadTranscript(force: true) }
+                }
+            }
+
             ForEach(SubtitleFormat.allCases) { format in
                 Button("Export \(format.displayName)") {
                     let content = SubtitleExporter.export(segments: segments, format: format)
@@ -193,11 +256,11 @@ struct TranscriptPanel: View {
     @State private var showExportSheet = false
     @State private var exportURL: URL?
 
-    private func downloadModel() async {
+    private func prepareEngine() async {
         errorMessage = nil
         do {
-            try await transcriptionService.downloadWhisperModel()
-            modelInstalled = await transcriptionService.isWhisperModelInstalled()
+            try await transcriptionService.prepareEngine()
+            await refreshPanelState()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -533,7 +596,7 @@ private struct TranscriptPlaceholderButton: View {
 
 private struct TranscriptLoadingView: View {
     let message: String
-    var showsDownloadNote = false
+    var footnote: String?
     var usesPlayerDarkTheme = false
 
     var body: some View {
@@ -544,8 +607,8 @@ private struct TranscriptLoadingView: View {
                 .font(.subheadline)
                 .foregroundStyle(usesPlayerDarkTheme ? .white.opacity(0.75) : .secondary)
                 .multilineTextAlignment(.center)
-            if showsDownloadNote {
-                Text("One-time download · \(TranscriptionService.whisperModelDownloadSize)")
+            if let footnote {
+                Text(footnote)
                     .font(RavenDesign.Typography.labelCaps())
                     .foregroundStyle(usesPlayerDarkTheme ? .white.opacity(0.45) : Color.secondary.opacity(0.75))
                     .textCase(.uppercase)

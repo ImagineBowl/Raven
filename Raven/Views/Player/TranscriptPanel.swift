@@ -13,6 +13,7 @@ struct TranscriptPanel: View {
     let book: Book
     let chapter: Chapter
     var onScrollOffsetChange: ((CGFloat) -> Void)?
+    var usesPlayerDarkTheme = false
 
     @Environment(\.modelContext) private var modelContext
     @Environment(TranscriptionService.self) private var transcriptionService
@@ -40,13 +41,14 @@ struct TranscriptPanel: View {
                         bookID: book.id,
                         chapterID: chapter.id,
                         segments: segments,
-                        onScrollOffsetChange: onScrollOffsetChange
+                        onScrollOffsetChange: onScrollOffsetChange,
+                        usesPlayerDarkTheme: usesPlayerDarkTheme
                     )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(usesPlayerDarkTheme ? RavenDesign.Colors.playerSurface : Color(.systemGroupedBackground))
         .task(id: chapter.id) {
             startTranscriptLoad(force: false)
         }
@@ -62,12 +64,13 @@ struct TranscriptPanel: View {
         HStack {
             Text("Transcript")
                 .font(.headline)
+                .foregroundStyle(usesPlayerDarkTheme ? .white : .primary)
             Spacer()
             exportMenu
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Color(.systemGroupedBackground))
+        .background(usesPlayerDarkTheme ? RavenDesign.Colors.playerSurface : Color(.systemGroupedBackground))
     }
 
     private func errorView(_ message: String) -> some View {
@@ -166,12 +169,117 @@ struct TranscriptPanel: View {
     }
 }
 
+struct TranscriptPeekView: View {
+    let book: Book
+    let chapter: Chapter
+    var onExpand: () -> Void
+
+    @Environment(\.modelContext) private var modelContext
+    @Environment(TranscriptionService.self) private var transcriptionService
+    @Environment(AudioPlayerService.self) private var player
+
+    @State private var segments: [TranscriptSegment] = []
+
+    var body: some View {
+        Button(action: onExpand) {
+            VStack(spacing: 12) {
+                Capsule()
+                    .fill(.white.opacity(0.2))
+                    .frame(width: 32, height: 4)
+
+                ZStack(alignment: .bottom) {
+                    VStack(spacing: 8) {
+                        if let previousLine {
+                            Text(previousLine)
+                                .font(RavenDesign.Typography.transcriptActive())
+                                .foregroundStyle(.white.opacity(0.3))
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                                .scaleEffect(0.95)
+                        }
+
+                        if let activeLine {
+                            Text(activeLine)
+                                .font(RavenDesign.Typography.transcriptActive())
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                        } else if segments.isEmpty {
+                            Text("Tap to open transcript")
+                                .font(RavenDesign.Typography.bodyUI())
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+
+                    LinearGradient(
+                        colors: [RavenDesign.Colors.playerSurface.opacity(0), RavenDesign.Colors.playerSurface],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 36)
+                    .allowsHitTesting(false)
+                }
+                .frame(maxHeight: 96)
+            }
+            .padding(.top, RavenDesign.Spacing.stackMedium)
+        }
+        .buttonStyle(.plain)
+        .task(id: chapter.id) {
+            await loadSegments()
+        }
+    }
+
+    private var activeLine: String? {
+        guard let segment = TranscriptSegmentLookup.segment(at: player.currentTime, in: segments) else {
+            return segments.first?.text
+        }
+        return segment.text
+    }
+
+    private var previousLine: String? {
+        guard let activeIndex = segments.firstIndex(where: { $0.id == TranscriptSegmentLookup.segment(at: player.currentTime, in: segments)?.id }),
+              activeIndex > 0 else {
+            return nil
+        }
+        return segments[activeIndex - 1].text
+    }
+
+    private func loadSegments() async {
+        if chapter.hasTranscript {
+            segments = sanitized(chapter.sortedSegments)
+            return
+        }
+
+        do {
+            let loaded = try await transcriptionService.ensureTranscript(
+                for: chapter,
+                book: book,
+                modelContext: modelContext
+            )
+            segments = sanitized(loaded)
+            try? modelContext.save()
+        } catch {
+            segments = []
+        }
+    }
+
+    private func sanitized(_ segments: [TranscriptSegment]) -> [TranscriptSegment] {
+        segments.map { segment in
+            segment.text = TranscriptTextSanitizer.clean(segment.text)
+            return segment
+        }
+    }
+}
+
 /// Isolates playback-driven highlight updates from the rest of the transcript panel.
 private struct TranscriptLyricsScrollView: View {
     let bookID: UUID
     let chapterID: UUID
     let segments: [TranscriptSegment]
     var onScrollOffsetChange: ((CGFloat) -> Void)?
+    var usesPlayerDarkTheme = false
 
     @Environment(AudioPlayerService.self) private var player
 
@@ -187,6 +295,7 @@ private struct TranscriptLyricsScrollView: View {
                         TranscriptLyricsLine(
                             text: segment.text,
                             isActive: segment.id == activeSegmentID,
+                            usesPlayerDarkTheme: usesPlayerDarkTheme,
                             onTap: { player.seek(to: segment.startTime) }
                         )
                         .equatable()
@@ -234,22 +343,30 @@ private struct TranscriptLyricsScrollView: View {
 private struct TranscriptLyricsLine: View, Equatable {
     let text: String
     let isActive: Bool
+    var usesPlayerDarkTheme = false
     let onTap: () -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.text == rhs.text && lhs.isActive == rhs.isActive
+        lhs.text == rhs.text && lhs.isActive == rhs.isActive && lhs.usesPlayerDarkTheme == rhs.usesPlayerDarkTheme
     }
 
     var body: some View {
         Button(action: onTap) {
             Text(text)
-                .font(isActive ? .title3.weight(.semibold) : .body)
-                .foregroundStyle(isActive ? Color.primary : Color.secondary.opacity(0.75))
+                .font(isActive ? RavenDesign.Typography.transcriptActive() : RavenDesign.Typography.bodyUI())
+                .foregroundStyle(lineColor)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, isActive ? 14 : 8)
         }
         .buttonStyle(.plain)
+    }
+
+    private var lineColor: Color {
+        if usesPlayerDarkTheme {
+            return isActive ? .white : .white.opacity(0.45)
+        }
+        return isActive ? Color.primary : Color.secondary.opacity(0.75)
     }
 }
 

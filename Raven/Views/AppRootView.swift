@@ -16,22 +16,38 @@ struct AppRootView: View {
     @Environment(TranscriptionService.self) private var transcriptionService
 
     var body: some View {
-        LibraryView()
-            .onAppear {
-                player.configure(modelContext: modelContext)
-            }
-            .onChange(of: scenePhase) { _, newPhase in
-                switch newPhase {
-                case .background:
-                    player.handleAppBackgrounded()
-                    transcriptionService.suspendForBackground(modelContext: modelContext)
-                case .active:
-                    player.checkSleepTimerExpiry()
-                case .inactive:
-                    player.handleAppBackgrounded()
-                @unknown default:
-                    break
+        TabView {
+            LibraryView()
+                .tabItem {
+                    Label("Library", systemImage: "book.closed.fill")
                 }
+
+            SearchPlaceholderView()
+                .tabItem {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+
+            SettingsView()
+                .tabItem {
+                    Label("Settings", systemImage: "gearshape")
+                }
+        }
+        .tint(RavenDesign.Colors.primary)
+        .onAppear {
+            player.configure(modelContext: modelContext)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .background:
+                player.handleAppBackgrounded()
+                transcriptionService.suspendForBackground(modelContext: modelContext)
+            case .active:
+                player.checkSleepTimerExpiry()
+            case .inactive:
+                player.handleAppBackgrounded()
+            @unknown default:
+                break
             }
+        }
     }
 }

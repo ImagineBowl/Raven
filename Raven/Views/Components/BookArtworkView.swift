@@ -11,13 +11,14 @@ import UIKit
 struct BookArtworkView: View {
     let book: Book
     var cornerRadius: CGFloat = 8
+    var contentMode: ContentMode = .fit
 
     var body: some View {
         Group {
             if let data = book.artworkData, let uiImage = UIImage(data: data) {
                 Image(uiImage: uiImage)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentMode)
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)

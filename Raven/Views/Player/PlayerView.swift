@@ -30,16 +30,23 @@ struct PlayerCollapseState {
 
 struct PlayerView: View {
     let book: Book
+    @Environment(\.dismiss) private var dismiss
     @Environment(AudioPlayerService.self) private var player
     @State private var viewModel = PlayerViewModel()
     @State private var collapseState = PlayerCollapseState()
+    @State private var showChapterList = false
+
+    private static let collapseAnimation = Animation.spring(response: 0.38, dampingFraction: 0.86)
 
     var body: some View {
         VStack(spacing: 0) {
+            playerNavigationBar
+
             playerHeader
-                .animation(.easeInOut(duration: 0.25), value: collapseState.isCollapsed)
+                .clipped()
 
             Divider()
+                .overlay(RavenDesign.Colors.outlineVariant.opacity(0.2))
 
             if let chapter = player.currentChapter {
                 TranscriptPanel(
@@ -48,25 +55,23 @@ struct PlayerView: View {
                     onScrollOffsetChange: { offset in
                         var next = collapseState
                         if next.update(for: offset) {
-                            collapseState = next
+                            withAnimation(Self.collapseAnimation) {
+                                collapseState = next
+                            }
                         }
-                    }
+                    },
+                    usesPlayerDarkTheme: true
                 )
             } else {
                 Spacer()
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    viewModel.showChapterList = true
-                } label: {
-                    Image(systemName: "list.bullet")
-                }
-            }
+        .background {
+            RavenDesign.Colors.playerSurface
+                .ignoresSafeArea()
         }
-        .sheet(isPresented: $viewModel.showChapterList) {
+        .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $showChapterList) {
             ChapterListView(book: book)
         }
         .task(id: book.id) {
@@ -75,57 +80,121 @@ struct PlayerView: View {
             }
         }
         .onChange(of: player.currentChapter?.id) { _, _ in
-            collapseState = PlayerCollapseState()
+            withAnimation(Self.collapseAnimation) {
+                collapseState = PlayerCollapseState()
+            }
         }
     }
 
     @ViewBuilder
     private var playerHeader: some View {
-        if collapseState.isCollapsed {
-            collapsedPlayerBar
-        } else {
-            expandedPlayerContent
+        Group {
+            if collapseState.isCollapsed {
+                collapsedPlayerBar
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .top)),
+                            removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
+                        )
+                    )
+            } else {
+                expandedPlayerContent
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.94, anchor: .top)),
+                            removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .top))
+                        )
+                    )
+            }
         }
+        .animation(Self.collapseAnimation, value: collapseState.isCollapsed)
+    }
+
+    private var playerNavigationBar: some View {
+        HStack {
+            Button(action: { dismiss() }) {
+                Image(systemName: "chevron.down")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .frame(width: 40, height: 40)
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            VStack(spacing: 4) {
+                Text("Now Playing")
+                    .font(RavenDesign.Typography.headlineMedium())
+                    .foregroundStyle(.white)
+
+                Text(chapterSubtitle)
+                    .font(RavenDesign.Typography.labelCaps())
+                    .foregroundStyle(.white.opacity(0.4))
+                    .textCase(.uppercase)
+                    .tracking(1.2)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Menu {
+                Button("Chapters") {
+                    showChapterList = true
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .frame(width: 40, height: 40)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, RavenDesign.Spacing.pageMargin)
+        .padding(.top, 8)
+        .padding(.bottom, RavenDesign.Spacing.stackSmall)
+    }
+
+    private var chapterSubtitle: String {
+        player.currentChapter?.title ?? book.title
     }
 
     private var expandedPlayerContent: some View {
-        VStack(spacing: 20) {
-            artwork
-            metadata
-            PlayerProgressSection(viewModel: viewModel)
-            transportControls
-            optionsRow
+        VStack(spacing: 16) {
+            artworkSection
+            metadataSection
+            controlsSection
         }
-        .padding(.horizontal)
-        .padding(.top, 8)
+        .padding(.horizontal, RavenDesign.Spacing.pageMargin)
         .padding(.bottom, 12)
     }
 
     private var collapsedPlayerBar: some View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
-                BookArtworkView(book: book, cornerRadius: 6)
+                BookArtworkView(book: book, cornerRadius: 6, contentMode: .fit)
                     .frame(width: 36, height: 36)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(player.currentChapter?.title ?? book.title)
                         .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
                         .lineLimit(1)
 
                     PlayerElapsedLabel()
                         .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.5))
                 }
 
                 Spacer(minLength: 8)
 
-                BedtimeModeButton(style: .iconOnly)
+                PlayerBedtimeButton()
 
                 Button {
                     player.togglePlayPause()
                 } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.title3)
+                        .foregroundStyle(.white)
                         .frame(width: 36, height: 36)
                 }
                 .buttonStyle(.plain)
@@ -135,89 +204,123 @@ struct PlayerView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.bar)
+        .background(RavenDesign.Colors.playerSurface)
     }
 
-    private var artwork: some View {
-        BookArtworkView(book: book, cornerRadius: 16)
-            .aspectRatio(1, contentMode: .fit)
-            .frame(maxWidth: 220)
-    }
+    private var artworkSection: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.black.opacity(0.35))
+                .blur(radius: 20)
+                .scaleEffect(0.92)
+                .offset(y: 16)
 
-    private var metadata: some View {
-        VStack(spacing: 6) {
-            Text(player.currentChapter?.title ?? book.title)
-                .font(.title3.weight(.semibold))
-                .multilineTextAlignment(.center)
-
-            Text(book.author.isEmpty ? book.title : book.author)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+            BookArtworkView(book: book, cornerRadius: 8, contentMode: .fit)
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: 220)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.4), radius: 16, y: 8)
         }
     }
 
-    private var transportControls: some View {
-        HStack(spacing: 36) {
-            Button {
-                player.skipBackward()
-            } label: {
-                Image(systemName: "gobackward.15")
-                    .font(.title2)
-            }
+    private var metadataSection: some View {
+        VStack(spacing: 4) {
+            Text(book.title)
+                .font(RavenDesign.Typography.headlineMedium())
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
 
-            Button {
-                player.togglePlayPause()
-            } label: {
-                Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 56))
-            }
+            Text(book.author.isEmpty ? book.title : book.author)
+                .font(RavenDesign.Typography.bodyUI())
+                .foregroundStyle(.white.opacity(0.6))
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+        }
+    }
 
-            Button {
-                player.skipForward()
-            } label: {
-                Image(systemName: "goforward.30")
-                    .font(.title2)
+    private var controlsSection: some View {
+        VStack(spacing: RavenDesign.Spacing.stackMedium) {
+            PlayerProgressSection(viewModel: viewModel)
+
+            HStack {
+                playbackSpeedButton
+                    .frame(width: 48, height: 48)
+
+                Spacer()
+
+                HStack(spacing: 28) {
+                    skipButton(systemImage: "gobackward.15") {
+                        player.skipBackward()
+                    }
+
+                    Button {
+                        player.togglePlayPause()
+                    } label: {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(RavenDesign.Colors.primary)
+                            .frame(width: 72, height: 72)
+                            .background(.white, in: Circle())
+                            .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+                    }
+                    .buttonStyle(RavenPressButtonStyle())
+
+                    skipButton(systemImage: "goforward.30") {
+                        player.skipForward()
+                    }
+                }
+
+                Spacer()
+
+                PlayerBedtimeButton()
+                    .frame(width: 48, height: 48)
             }
+        }
+    }
+
+    private var playbackSpeedButton: some View {
+        Menu {
+            ForEach(viewModel.playbackRates, id: \.self) { rate in
+                Button {
+                    player.setPlaybackRate(rate)
+                } label: {
+                    if player.playbackRate == rate {
+                        Label("\(rate, specifier: "%.2g")×", systemImage: "checkmark")
+                    } else {
+                        Text("\(rate, specifier: "%.2g")×")
+                    }
+                }
+            }
+        } label: {
+            Text("\(player.playbackRate, specifier: "%.2g")×")
+                .font(RavenDesign.Typography.labelCaps())
+                .foregroundStyle(.white.opacity(0.8))
         }
         .buttonStyle(.plain)
     }
 
-    private var optionsRow: some View {
-        HStack {
-            Menu {
-                ForEach(viewModel.playbackRates, id: \.self) { rate in
-                    Button {
-                        player.setPlaybackRate(rate)
-                    } label: {
-                        if player.playbackRate == rate {
-                            Label("\(rate, specifier: "%.2g")×", systemImage: "checkmark")
-                        } else {
-                            Text("\(rate, specifier: "%.2g")×")
-                        }
-                    }
-                }
-            } label: {
-                Label("\(player.playbackRate, specifier: "%.2g")×", systemImage: "gauge.with.dots.needle.33percent")
-                    .font(.subheadline)
-            }
-
-            Spacer()
-
-            BedtimeModeButton()
+    private func skipButton(systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 26))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
         }
-        .foregroundStyle(.primary)
+        .buttonStyle(RavenPressButtonStyle())
     }
 }
 
-/// Isolates playback slider updates so transcript scrolling is not invalidated every tick.
 private struct PlayerProgressSection: View {
     @Environment(AudioPlayerService.self) private var player
     @Bindable var viewModel: PlayerViewModel
     var controlSize: ControlSize = .regular
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: RavenDesign.Spacing.stackSmall) {
             Slider(
                 value: $viewModel.scrubValue,
                 in: 0...max(player.bookTotalDuration, 1),
@@ -230,6 +333,7 @@ private struct PlayerProgressSection: View {
                 }
             )
             .controlSize(controlSize)
+            .tint(.white)
 
             HStack {
                 Text(TimeFormatting.clock(viewModel.isScrubbing ? viewModel.scrubValue : player.bookElapsedTime))
@@ -239,8 +343,9 @@ private struct PlayerProgressSection: View {
                     total: player.bookTotalDuration
                 ))
             }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
+            .font(RavenDesign.Typography.labelCaps())
+            .foregroundStyle(.white.opacity(0.4))
+            .monospacedDigit()
         }
         .onChange(of: player.bookElapsedTime) { _, _ in
             viewModel.bind(to: player)
@@ -248,7 +353,6 @@ private struct PlayerProgressSection: View {
     }
 }
 
-/// Compact elapsed/remaining label for the collapsed player bar.
 private struct PlayerElapsedLabel: View {
     @Environment(AudioPlayerService.self) private var player
 
@@ -257,4 +361,36 @@ private struct PlayerElapsedLabel: View {
             "\(TimeFormatting.clock(player.bookElapsedTime)) · \(TimeFormatting.remaining(player.bookElapsedTime, total: player.bookTotalDuration))"
         )
     }
+}
+
+private struct PlayerBedtimeButton: View {
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        Button {
+            player.toggleBedtimeMode()
+        } label: {
+            Image(systemName: "moon.fill")
+                .font(.title3)
+                .foregroundStyle(
+                    player.isBedtimeModeEnabled
+                        ? RavenDesign.Colors.primaryFixedDim
+                        : .white.opacity(0.8)
+                )
+                .frame(width: 36, height: 36)
+                .background {
+                    if player.isBedtimeModeEnabled {
+                        Circle().fill(.white.opacity(0.1))
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Bedtime mode")
+    }
+}
+
+#Preview {
+    PlayerView(book: Book(title: "The Name of the Wind", author: "Patrick Rothfuss"))
+        .environment(AudioPlayerService())
+        .environment(TranscriptionService())
 }

@@ -14,58 +14,55 @@ struct LibraryView: View {
     @Environment(AudioPlayerService.self) private var player
     @Query(sort: \Book.importedAt, order: .reverse) private var books: [Book]
     @State private var viewModel = LibraryViewModel()
-    @State private var navigationPath = NavigationPath()
     @State private var visiblePlayerBookID: UUID?
+    @State private var presentedPlayerBook: Book?
 
     private var showMiniPlayer: Bool {
         guard let currentBook = player.currentBook else { return false }
         return visiblePlayerBookID != currentBook.id
     }
 
+    private var featuredBook: Book? {
+        if let current = player.currentBook, books.contains(where: { $0.id == current.id }) {
+            return current
+        }
+        return books.first
+    }
+
+    private var otherBooks: [Book] {
+        guard let featuredBook else { return books }
+        return books.filter { $0.id != featuredBook.id }
+    }
+
     var body: some View {
-        NavigationStack(path: $navigationPath) {
+        NavigationStack {
             Group {
                 if books.isEmpty {
-                    emptyLibraryView
+                    VStack(spacing: 0) {
+                        LibraryScreenHeader()
+                        EmptyLibraryView(
+                            isAddDisabled: viewModel.isImporting || viewModel.isSyncing,
+                            onAddFolder: { viewModel.showDocumentPicker = true }
+                        )
+                    }
                 } else {
-                    List {
-                        ForEach(books) { book in
-                            NavigationLink(value: book) {
-                                BookRowView(book: book)
-                            }
-                        }
-                        .onDelete(perform: deleteBooks)
-                    }
-                    .listStyle(.insetGrouped)
+                    populatedLibraryView
                 }
             }
-            .navigationTitle("Library")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink {
-                        SettingsView()
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    addFolderButton
+            .background(RavenDesign.Colors.paper)
+            .toolbar(.hidden, for: .navigationBar)
+            .fullScreenCover(isPresented: playerCoverIsPresented) {
+                if let presentedPlayerBook {
+                    PlayerView(book: presentedPlayerBook)
                 }
             }
-            .navigationDestination(for: Book.self) { book in
-                PlayerView(book: book)
-                    .onAppear { visiblePlayerBookID = book.id }
-                    .onDisappear {
-                        if visiblePlayerBookID == book.id {
-                            visiblePlayerBookID = nil
-                        }
-                    }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .safeAreaInset(edge: .bottom, spacing: 8) {
                 if showMiniPlayer, let book = player.currentBook {
                     MiniPlayerBar(book: book) {
-                        navigationPath.append(book)
+                        presentPlayer(book)
                     }
+                    .padding(.bottom)
+                    .padding(.horizontal, RavenDesign.Spacing.pageMargin)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -114,83 +111,98 @@ struct LibraryView: View {
         }
     }
 
-    private var emptyLibraryView: some View {
-        ContentUnavailableView {
-            Label {
-                Text("No Audiobooks")
-            } icon: {
-                RavenLogoView(size: 72)
+    private var populatedLibraryView: some View {
+        VStack(spacing: 0) {
+            LibraryScreenHeader(
+                onAddFolder: { viewModel.showDocumentPicker = true },
+                isAddDisabled: viewModel.isImporting || viewModel.isSyncing
+            )
+
+            ScrollView {
+                VStack(spacing: RavenDesign.Spacing.stackLarge) {
+                    if let featuredBook {
+                        Button {
+                            presentPlayer(featuredBook)
+                        } label: {
+                            RavenLibraryCard {
+                                FeaturedBookRow(
+                                    book: featuredBook,
+                                    progress: progress(for: featuredBook)
+                                )
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contextMenu {
+                            deleteContextMenu(for: featuredBook)
+                        }
+                    }
+
+                    if !otherBooks.isEmpty {
+                        RavenLibraryCard {
+                            VStack(spacing: 0) {
+                                ForEach(Array(otherBooks.enumerated()), id: \.element.id) { index, book in
+                                    Button {
+                                        presentPlayer(book)
+                                    } label: {
+                                        CompactBookRow(book: book)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .contextMenu {
+                                        deleteContextMenu(for: book)
+                                    }
+
+                                    if index < otherBooks.count - 1 {
+                                        RavenDesign.Colors.outlineVariant.opacity(0.1)
+                                            .frame(height: 1)
+                                            .padding(.leading, RavenDesign.BookCover.compactSize + RavenDesign.Spacing.stackMedium)
+                                    }
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, RavenDesign.Spacing.pageMargin)
+                .padding(.top, RavenDesign.Spacing.stackMedium)
+                .padding(.bottom, showMiniPlayer ? 96 : 32)
             }
-        } description: {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Add audiobooks using either method:")
-                Text("1. Tap **Add Folder** in this app")
-                Text("2. In the **Files** app go to:")
-                Text(RavenLibraryStore.filesAppPathDescription)
-                    .font(.callout.monospaced())
-                Text("Then create a folder for each book and add your audio files.")
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } actions: {
-            addFolderButton
+            .scrollIndicators(.hidden)
         }
     }
 
-    private var addFolderButton: some View {
-        Button {
-            viewModel.showDocumentPicker = true
-        } label: {
-            Label("Add Folder", systemImage: "folder.badge.plus")
+    private func progress(for book: Book) -> Double {
+        if player.currentBook?.id == book.id, player.bookTotalDuration > 0 {
+            return player.bookElapsedTime / player.bookTotalDuration
         }
-        .disabled(viewModel.isImporting || viewModel.isSyncing)
+        return book.progressFraction
     }
 
-    private func deleteBooks(at offsets: IndexSet) {
-        for index in offsets {
-            let book = books[index]
+    private var playerCoverIsPresented: Binding<Bool> {
+        Binding(
+            get: { presentedPlayerBook != nil },
+            set: { isPresented in
+                if !isPresented {
+                    presentedPlayerBook = nil
+                    visiblePlayerBookID = nil
+                }
+            }
+        )
+    }
+
+    private func presentPlayer(_ book: Book) {
+        presentedPlayerBook = book
+        visiblePlayerBookID = book.id
+    }
+
+    @ViewBuilder
+    private func deleteContextMenu(for book: Book) -> some View {
+        Button(role: .destructive) {
             BookDeletionService.delete(book, modelContext: modelContext, player: player)
+        } label: {
+            Label("Delete", systemImage: "trash")
         }
-    }
-}
-
-struct BookRowView: View {
-    let book: Book
-
-    var body: some View {
-        HStack(spacing: 14) {
-            BookArtworkView(book: book, cornerRadius: 8)
-                .frame(width: 56, height: 56)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(book.title)
-                    .font(.headline)
-                    .lineLimit(2)
-
-                if !book.author.isEmpty {
-                    Text(book.author)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack {
-                    Text("\(book.sortedChapters.count) chapters")
-                    Text("·")
-                    Text(TimeFormatting.clock(book.totalDuration))
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-                if !book.isAvailable {
-                    Text("Folder missing from library")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-
-                ProgressView(value: book.progressFraction)
-                    .tint(.accentColor)
-            }
-        }
-        .padding(.vertical, 4)
     }
 }
 

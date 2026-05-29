@@ -23,4 +23,15 @@ enum TimeFormatting {
     static func remaining(_ current: TimeInterval, total: TimeInterval) -> String {
         "-" + clock(max(0, total - current))
     }
+
+    static func durationCompact(_ seconds: TimeInterval) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0m" }
+        let total = Int(seconds.rounded())
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+        return "\(minutes)m"
+    }
 }

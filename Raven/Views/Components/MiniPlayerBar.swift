@@ -12,41 +12,71 @@ struct MiniPlayerBar: View {
     @Environment(AudioPlayerService.self) private var player
     var onExpand: () -> Void
 
+    private var progress: Double {
+        guard player.bookTotalDuration > 0 else { return 0 }
+        return player.bookElapsedTime / player.bookTotalDuration
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Button(action: onExpand) {
                 HStack(spacing: 12) {
-                    BookArtworkView(book: book, cornerRadius: 6)
-                        .frame(width: 44, height: 44)
+                    BookArtworkView(book: book, cornerRadius: 4, contentMode: .fit)
+                        .frame(width: 40, height: 40)
+                        .background(RavenDesign.Colors.surfaceContainer, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(player.currentChapter?.title ?? book.title)
-                            .font(.subheadline.weight(.medium))
+                        Text(book.title)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(RavenDesign.Colors.primary)
                             .lineLimit(1)
-                        Text(book.author.isEmpty ? book.title : book.author)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Text(player.currentChapter?.title ?? book.author)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(RavenDesign.Colors.onSurfaceVariant)
                             .lineLimit(1)
                     }
-                    Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
-            BedtimeModeButton(style: .iconOnly)
+            HStack(spacing: 16) {
+                Button {
+                    player.togglePlayPause()
+                } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.title2)
+                        .foregroundStyle(RavenDesign.Colors.primary)
+                }
+                .buttonStyle(.plain)
 
-            Button {
-                player.togglePlayPause()
-            } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title2)
-                    .frame(width: 44, height: 44)
+                Button {
+                    player.skipForward()
+                } label: {
+                    Image(systemName: "goforward.30")
+                        .font(.title2)
+                        .foregroundStyle(RavenDesign.Colors.primary)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 4)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.bar)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(RavenDesign.Colors.outlineVariant.opacity(0.1), lineWidth: 1)
+                }
+        }
+        .overlay(alignment: .bottom) {
+            RavenProgressBar(progress: progress, height: 2)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 4)
+        }
     }
 }

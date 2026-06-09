@@ -11,17 +11,18 @@ import SwiftUI
 enum RavenDesign {
     enum Colors {
         static let paper = Color("LaunchBackground")
-        static let primary = Color(red: 0.016, green: 0.086, blue: 0.180)
+        static let primary = Color("RavenPrimary")
         static let onPrimary = Color.white
-        static let onSurfaceVariant = Color(red: 0.267, green: 0.278, blue: 0.302)
-        static let outlineVariant = Color(red: 0.773, green: 0.776, blue: 0.808)
-        static let surfaceContainerHighest = Color(red: 0.890, green: 0.886, blue: 0.898)
-        static let surfaceLowest = Color.white
-        static let surfaceContainer = Color(red: 0.937, green: 0.929, blue: 0.941)
-        static let secondaryContainer = Color(red: 0.902, green: 0.886, blue: 0.863)
-        static let primaryContainer = Color(red: 0.102, green: 0.169, blue: 0.267)
-        static let playerSurface = Color(red: 0.200, green: 0.200, blue: 0.220)
-        static let primaryFixedDim = Color(red: 0.714, green: 0.780, blue: 0.906)
+        static let onSurface = Color("RavenOnSurface")
+        static let onSurfaceVariant = Color("RavenOnSurfaceVariant")
+        static let outlineVariant = Color("RavenOutlineVariant")
+        static let surfaceContainerHighest = Color("RavenSurfaceContainerHighest")
+        static let surfaceLowest = Color("RavenSurfaceLowest")
+        static let surfaceContainer = Color("RavenSurfaceContainer")
+        static let secondaryContainer = Color("RavenSecondaryContainer")
+        static let primaryContainer = Color("RavenPrimaryContainer")
+        static let playerSurface = Color("RavenPlayerSurface")
+        static let primaryFixedDim = Color("RavenPrimaryFixedDim")
     }
 
     enum Typography {
@@ -107,13 +108,13 @@ struct LibraryScreenHeader: View {
         HStack(alignment: .bottom) {
             Text("Library")
                 .font(RavenDesign.Typography.displayLarge())
-                .foregroundStyle(RavenDesign.Colors.primary)
+                .foregroundStyle(RavenDesign.Colors.onSurface)
             Spacer()
             if let onAddFolder {
                 Button(action: onAddFolder) {
                     Image(systemName: "folder.badge.plus")
                         .font(.title3)
-                        .foregroundStyle(RavenDesign.Colors.primary)
+                        .foregroundStyle(RavenDesign.Colors.onSurface)
                 }
                 .disabled(isAddDisabled)
                 .opacity(isAddDisabled ? 0.5 : 1)
@@ -125,7 +126,8 @@ struct LibraryScreenHeader: View {
         .frame(maxWidth: .infinity)
         .background {
             Rectangle()
-                .fill(.ultraThinMaterial)
+                .fill(RavenDesign.Colors.paper)
+                .ignoresSafeArea(edges: .top)
                 .overlay(alignment: .bottom) {
                     RavenDesign.Colors.outlineVariant.opacity(0.2)
                         .frame(height: 1)
@@ -153,6 +155,7 @@ struct RavenProgressBar: View {
 }
 
 struct RavenLibraryCard<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -162,7 +165,11 @@ struct RavenLibraryCard<Content: View>: View {
             .background {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(RavenDesign.Colors.surfaceLowest)
-                    .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+                    .shadow(
+                        color: .black.opacity(colorScheme == .dark ? 0.25 : 0.06),
+                        radius: colorScheme == .dark ? 8 : 4,
+                        y: colorScheme == .dark ? 4 : 2
+                    )
             }
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }

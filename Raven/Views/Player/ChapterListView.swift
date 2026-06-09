@@ -69,7 +69,7 @@ struct ChapterListView: View {
             HStack {
                 Text("Chapters")
                     .font(RavenDesign.Typography.headlineMedium())
-                    .foregroundStyle(RavenDesign.Colors.onSurfaceVariant)
+                    .foregroundStyle(RavenDesign.Colors.onSurface)
 
                 Spacer()
 
@@ -100,7 +100,7 @@ struct ChapterListView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(player.currentChapter?.title ?? book.title)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(RavenDesign.Colors.primary)
+                    .foregroundStyle(RavenDesign.Colors.onSurface)
                     .lineLimit(1)
 
                 Text(chapterSheetSubtitle)
@@ -187,7 +187,7 @@ private struct ChapterListRow: View {
                         HStack(spacing: 8) {
                             Text("Chapter \(chapterNumber)")
                                 .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(RavenDesign.Colors.primary)
+                                .foregroundStyle(RavenDesign.Colors.onSurface)
 
                             if isPlaying {
                                 ChapterPlayingBars()
@@ -196,7 +196,7 @@ private struct ChapterListRow: View {
 
                         Text(chapter.title)
                             .font(RavenDesign.Typography.headlineMedium())
-                            .foregroundStyle(RavenDesign.Colors.primary)
+                            .foregroundStyle(RavenDesign.Colors.onSurface)
                             .multilineTextAlignment(.leading)
                     } else {
                         Text("Chapter \(chapterNumber)")
@@ -205,7 +205,7 @@ private struct ChapterListRow: View {
 
                         Text(chapter.title)
                             .font(RavenDesign.Typography.bodyUI())
-                            .foregroundStyle(RavenDesign.Colors.primary)
+                            .foregroundStyle(RavenDesign.Colors.onSurface)
                             .multilineTextAlignment(.leading)
                     }
                 }
@@ -220,7 +220,7 @@ private struct ChapterListRow: View {
                         if let chapterRemaining {
                             Text("\(TimeFormatting.clock(chapterRemaining)) remaining")
                                 .font(.system(size: 10))
-                                .foregroundStyle(RavenDesign.Colors.primary.opacity(0.6))
+                                .foregroundStyle(RavenDesign.Colors.onSurfaceVariant)
                         }
                     }
                 } else {

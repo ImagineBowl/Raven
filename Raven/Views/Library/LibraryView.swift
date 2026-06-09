@@ -38,18 +38,25 @@ struct LibraryView: View {
         NavigationStack {
             Group {
                 if books.isEmpty {
-                    VStack(spacing: 0) {
-                        LibraryScreenHeader()
-                        EmptyLibraryView(
-                            isAddDisabled: viewModel.isImporting || viewModel.isSyncing,
-                            onAddFolder: { viewModel.showDocumentPicker = true }
-                        )
-                    }
+                    EmptyLibraryView(
+                        isAddDisabled: viewModel.isImporting || viewModel.isSyncing,
+                        onAddFolder: { viewModel.showDocumentPicker = true }
+                    )
                 } else {
                     populatedLibraryView
                 }
             }
-            .background(RavenDesign.Colors.paper)
+            .background(RavenDesign.Colors.paper.ignoresSafeArea())
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if books.isEmpty {
+                    LibraryScreenHeader()
+                } else {
+                    LibraryScreenHeader(
+                        onAddFolder: { viewModel.showDocumentPicker = true },
+                        isAddDisabled: viewModel.isImporting || viewModel.isSyncing
+                    )
+                }
+            }
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(isPresented: playerCoverIsPresented) {
                 if let presentedPlayerBook {
@@ -112,13 +119,7 @@ struct LibraryView: View {
     }
 
     private var populatedLibraryView: some View {
-        VStack(spacing: 0) {
-            LibraryScreenHeader(
-                onAddFolder: { viewModel.showDocumentPicker = true },
-                isAddDisabled: viewModel.isImporting || viewModel.isSyncing
-            )
-
-            ScrollView {
+        ScrollView {
                 VStack(spacing: RavenDesign.Spacing.stackLarge) {
                     if let featuredBook {
                         Button {
@@ -167,9 +168,8 @@ struct LibraryView: View {
                 .padding(.horizontal, RavenDesign.Spacing.pageMargin)
                 .padding(.top, RavenDesign.Spacing.stackMedium)
                 .padding(.bottom, showMiniPlayer ? 96 : 32)
-            }
-            .scrollIndicators(.hidden)
         }
+        .scrollIndicators(.hidden)
     }
 
     private func progress(for book: Book) -> Double {

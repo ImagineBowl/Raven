@@ -408,6 +408,7 @@ private struct TranscriptLyricsScrollView: View {
     @Environment(AudioPlayerService.self) private var player
 
     @State private var activeSegmentID: UUID?
+    @State private var pinnedSegmentID: UUID?
     @State private var userIsScrolling = false
     @State private var lastReportedOffset: CGFloat = 0
 
@@ -420,9 +421,8 @@ private struct TranscriptLyricsScrollView: View {
                             text: segment.text,
                             isActive: segment.id == activeSegmentID,
                             usesPlayerDarkTheme: usesPlayerDarkTheme,
-                            onTap: { player.seek(to: segment.startTime) }
+                            onTap: { selectSegment(segment, scrollProxy: proxy) }
                         )
-                        .equatable()
                         .id(segment.id)
                     }
                 }
@@ -443,15 +443,36 @@ private struct TranscriptLyricsScrollView: View {
             .onChange(of: player.currentTime) { _, time in
                 updateActiveSegment(for: time, scrollProxy: proxy)
             }
+            .onChange(of: chapterID) { _, _ in
+                pinnedSegmentID = nil
+                activeSegmentID = TranscriptSegmentLookup.segment(at: player.currentTime, in: segments)?.id
+            }
             .onAppear {
                 updateActiveSegment(for: player.currentTime, scrollProxy: proxy)
             }
         }
     }
 
+    private func selectSegment(_ segment: TranscriptSegment, scrollProxy: ScrollViewProxy) {
+        pinnedSegmentID = segment.id
+        activeSegmentID = segment.id
+        if !userIsScrolling {
+            scrollProxy.scrollTo(segment.id, anchor: .center)
+        }
+        player.seek(to: segment.startTime)
+    }
+
     private func updateActiveSegment(for time: TimeInterval, scrollProxy: ScrollViewProxy) {
         guard player.currentBook?.id == bookID,
               player.currentChapter?.id == chapterID else { return }
+
+        if let pinnedID = pinnedSegmentID {
+            if TranscriptSegmentLookup.segment(at: time, in: segments)?.id == pinnedID {
+                pinnedSegmentID = nil
+            } else {
+                return
+            }
+        }
 
         let newID = TranscriptSegmentLookup.segment(at: time, in: segments)?.id
         guard newID != activeSegmentID else { return }
@@ -464,15 +485,11 @@ private struct TranscriptLyricsScrollView: View {
 }
 
 /// Lightweight row that only re-renders when its active state or text changes.
-private struct TranscriptLyricsLine: View, Equatable {
+private struct TranscriptLyricsLine: View {
     let text: String
     let isActive: Bool
     var usesPlayerDarkTheme = false
     let onTap: () -> Void
-
-    static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.text == rhs.text && lhs.isActive == rhs.isActive && lhs.usesPlayerDarkTheme == rhs.usesPlayerDarkTheme
-    }
 
     var body: some View {
         Button(action: onTap) {

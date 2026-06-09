@@ -28,7 +28,7 @@ struct MiniPlayerBar: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(book.title)
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(RavenDesign.Colors.primary)
+                            .foregroundStyle(RavenDesign.Colors.onSurface)
                             .lineLimit(1)
                         Text(player.currentChapter?.title ?? book.author)
                             .font(.system(size: 11, weight: .semibold))
@@ -47,7 +47,7 @@ struct MiniPlayerBar: View {
                 } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.title2)
-                        .foregroundStyle(RavenDesign.Colors.primary)
+                        .foregroundStyle(RavenDesign.Colors.onSurface)
                 }
                 .buttonStyle(.plain)
 
@@ -56,7 +56,7 @@ struct MiniPlayerBar: View {
                 } label: {
                     Image(systemName: "goforward.30")
                         .font(.title2)
-                        .foregroundStyle(RavenDesign.Colors.primary)
+                        .foregroundStyle(RavenDesign.Colors.onSurface)
                 }
                 .buttonStyle(.plain)
             }
@@ -66,11 +66,11 @@ struct MiniPlayerBar: View {
         .padding(.vertical, 12)
         .background {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(RavenDesign.Colors.surfaceLowest)
                 .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(RavenDesign.Colors.outlineVariant.opacity(0.1), lineWidth: 1)
+                        .strokeBorder(RavenDesign.Colors.outlineVariant.opacity(0.15), lineWidth: 1)
                 }
         }
         .overlay(alignment: .bottom) {

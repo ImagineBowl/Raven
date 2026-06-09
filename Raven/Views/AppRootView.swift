@@ -10,6 +10,9 @@ import SwiftData
 
 /// Configures shared services and handles app lifecycle for playback and transcription.
 struct AppRootView: View {
+    /// Set to `true` when library/transcript search ships.
+    private static let showsSearchTab = false
+
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AudioPlayerService.self) private var player
@@ -22,10 +25,12 @@ struct AppRootView: View {
                     Label("Library", systemImage: "book.closed.fill")
                 }
 
-            SearchPlaceholderView()
-                .tabItem {
-                    Label("Search", systemImage: "magnifyingglass")
-                }
+            if Self.showsSearchTab {
+                SearchPlaceholderView()
+                    .tabItem {
+                        Label("Search", systemImage: "magnifyingglass")
+                    }
+            }
 
             SettingsView()
                 .tabItem {

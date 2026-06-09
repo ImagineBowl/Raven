@@ -34,7 +34,7 @@ struct FeaturedBookRow: View {
             VStack(alignment: .leading, spacing: RavenDesign.Spacing.stackSmall) {
                 Text(book.title)
                     .font(RavenDesign.Typography.headlineMedium())
-                    .foregroundStyle(RavenDesign.Colors.primary)
+                    .foregroundStyle(RavenDesign.Colors.onSurface)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -68,7 +68,7 @@ struct FeaturedBookRow: View {
                     RavenProgressBar(progress: progress)
                     Text("\(Int(progress * 100))% Completed")
                         .font(RavenDesign.Typography.labelCaps())
-                        .foregroundStyle(RavenDesign.Colors.primary)
+                        .foregroundStyle(RavenDesign.Colors.onSurface)
                 }
                 .padding(.top, RavenDesign.Spacing.stackMedium)
             }
@@ -92,7 +92,7 @@ struct CompactBookRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(book.title)
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(RavenDesign.Colors.primary)
+                    .foregroundStyle(RavenDesign.Colors.onSurface)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
 

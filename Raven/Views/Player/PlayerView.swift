@@ -68,10 +68,7 @@ struct PlayerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            playerNavigationBar
-
-            playerHeader
-                .clipped()
+            playerTopSection
 
             Divider()
                 .overlay(RavenDesign.Colors.outlineVariant.opacity(0.2))
@@ -132,6 +129,31 @@ struct PlayerView: View {
                 collapseState = next
             }
         }
+    }
+
+    private var playerTopSection: some View {
+        VStack(spacing: 0) {
+            playerNavigationBar
+            playerHeader
+                .clipped()
+        }
+        .contentShape(Rectangle())
+        .gesture(playerCollapseDragGesture)
+    }
+
+    private var playerCollapseDragGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onEnded { value in
+                let vertical = value.translation.height
+                let horizontal = value.translation.width
+                guard abs(vertical) > abs(horizontal), abs(vertical) > 20 else { return }
+
+                if vertical > 20 {
+                    setPlayerCollapsed(false)
+                } else {
+                    setPlayerCollapsed(true)
+                }
+            }
     }
 
     @ViewBuilder

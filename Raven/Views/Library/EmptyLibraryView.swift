@@ -29,7 +29,7 @@ struct EmptyLibraryView: View {
                 VStack(spacing: RavenDesign.Spacing.stackLarge) {
                     Text("Your Library is Empty")
                         .font(RavenDesign.Typography.headlineMedium())
-                        .foregroundStyle(RavenDesign.Colors.primary)
+                        .foregroundStyle(RavenDesign.Colors.onSurface)
 
                     Text("Import your audiobooks from the Files app to get started.")
                         .font(RavenDesign.Typography.bodyUI())

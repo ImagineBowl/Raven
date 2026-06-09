@@ -266,10 +266,10 @@ struct PlayerView: View {
             BookArtworkView(book: book, cornerRadius: 8, contentMode: .fit)
                 .aspectRatio(1, contentMode: .fit)
                 .frame(maxWidth: 220)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(.white.opacity(0.1), lineWidth: 1)
-                }
+//                .overlay {
+//                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+//                        .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+//                }
                 .shadow(color: .black.opacity(0.4), radius: 16, y: 8)
         }
     }

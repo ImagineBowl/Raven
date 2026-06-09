@@ -57,6 +57,10 @@ enum BookScanner {
             ))
         }
 
+        if artworkData == nil {
+            artworkData = CoverImageTypes.findCoverImage(in: folderURL)
+        }
+
         let bookTitle = metadataTitle ?? folderURL.lastPathComponent
         let fingerprint = BookFingerprint.make(from: chapters)
         return ScanResult(

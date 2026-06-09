@@ -153,7 +153,7 @@ struct LibraryView: View {
                                     }
 
                                     if index < otherBooks.count - 1 {
-                                        RavenDesign.Colors.outlineVariant.opacity(0.1)
+                                        RavenDesign.Colors.outlineVariant.opacity(1)
                                             .frame(height: 1)
                                             .padding(.leading, RavenDesign.BookCover.compactSize + RavenDesign.Spacing.stackMedium)
                                     }

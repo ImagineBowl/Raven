@@ -6,8 +6,6 @@
 	<array>
 		<string>com.Imaginebowl.Raven.transcription</string>
 	</array>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Raven uses on-device speech recognition to generate audiobook transcripts. Audio stays on your device.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

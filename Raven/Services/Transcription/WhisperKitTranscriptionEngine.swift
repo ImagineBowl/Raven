@@ -10,19 +10,13 @@ import Foundation
 import WhisperKit
 
 enum WhisperModelError: LocalizedError {
-    case notInstalled
-    case downloadFailed(String)
-    case modelFilesMissing(String)
+    case bundledModelMissing
     case loadFailed(String)
 
     var errorDescription: String? {
         switch self {
-        case .notInstalled:
-            "The Whisper model is not downloaded yet. Download it first to generate transcripts."
-        case .downloadFailed(let detail):
-            "Could not download the Whisper model. Check your internet connection and try again.\n\(detail)"
-        case .modelFilesMissing(let path):
-            "Whisper model files are incomplete. Tap Try Again to re-download.\nMissing: \(path)"
+        case .bundledModelMissing:
+            "The bundled Whisper model is missing from the app. Reinstall Raven or contact support."
         case .loadFailed(let detail):
             "Could not load the Whisper model.\n\(detail)"
         }
@@ -33,8 +27,6 @@ actor WhisperKitTranscriptionEngine {
     static let shared = WhisperKitTranscriptionEngine()
 
     private static let modelVariant = "openai_whisper-tiny"
-    private static let modelRepo = "argmaxinc/whisperkit-coreml"
-    static let estimatedDownloadSize = "~75 MB"
 
     private var whisperKit: WhisperKit?
     private var loadTask: Task<WhisperKit, Error>?
@@ -68,26 +60,14 @@ actor WhisperKitTranscriptionEngine {
         }
     }
 
-    func isModelInstalled() -> Bool {
-        cachedModelFolderIfValid() != nil
-    }
-
-    func downloadModelIfNeeded(onProgress: (@Sendable (String) -> Void)? = nil) async throws {
-        guard !isModelInstalled() else { return }
-
-        onProgress?("Downloading Whisper model (\(Self.estimatedDownloadSize))…")
-        let folder = try await downloadModelFromRemote(onProgress: onProgress)
-        guard Self.validateModel(at: folder) else {
-            removeDownloadedModel()
-            throw WhisperModelError.modelFilesMissing(Self.melSpectrogramPath(in: folder))
-        }
+    func isModelAvailable() -> Bool {
+        Self.resolvedModelFolder() != nil
     }
 
     func resetModelCache() async {
         whisperKit = nil
         loadTask?.cancel()
         loadTask = nil
-        removeDownloadedModel()
     }
 
     func cancelActiveWork() {
@@ -118,36 +98,20 @@ actor WhisperKitTranscriptionEngine {
     }
 
     private func prepareWhisperKit(onProgress: (@Sendable (String) -> Void)? = nil) async throws -> WhisperKit {
-        onProgress?("Checking Whisper model…")
+        onProgress?("Loading Whisper model…")
 
-        guard var modelFolder = cachedModelFolderIfValid() else {
-            throw WhisperModelError.notInstalled
+        guard let modelFolder = Self.resolvedModelFolder() else {
+            throw WhisperModelError.bundledModelMissing
         }
 
-        if !Self.validateModel(at: modelFolder) {
-            removeDownloadedModel()
-            throw WhisperModelError.notInstalled
-        }
-
-        do {
-            return try await initializeWhisperKit(modelFolder: modelFolder, onProgress: onProgress)
-        } catch {
-            removeDownloadedModel()
-            onProgress?("Model load failed. Downloading fresh copy…")
-            let freshFolder = try await downloadModelFromRemote(onProgress: onProgress)
-            guard Self.validateModel(at: freshFolder) else {
-                throw WhisperModelError.modelFilesMissing(Self.melSpectrogramPath(in: freshFolder))
-            }
-            modelFolder = freshFolder
-            return try await initializeWhisperKit(modelFolder: modelFolder, onProgress: onProgress)
-        }
+        return try await initializeWhisperKit(modelFolder: modelFolder, onProgress: onProgress)
     }
 
     private func initializeWhisperKit(
         modelFolder: URL,
         onProgress: (@Sendable (String) -> Void)? = nil
     ) async throws -> WhisperKit {
-        onProgress?("Loading Whisper model…")
+        onProgress?("Preparing Whisper model…")
         let computeOptions = ModelComputeOptions(
             melCompute: .cpuAndNeuralEngine,
             audioEncoderCompute: .cpuAndNeuralEngine,
@@ -159,8 +123,7 @@ actor WhisperKitTranscriptionEngine {
             computeOptions: computeOptions,
             prewarm: true,
             load: true,
-            download: false,
-            useBackgroundDownloadSession: true
+            download: false
         )
         do {
             return try await WhisperKit(config)
@@ -169,46 +132,37 @@ actor WhisperKitTranscriptionEngine {
         }
     }
 
-    private func downloadModelFromRemote(onProgress: (@Sendable (String) -> Void)? = nil) async throws -> URL {
-        do {
-            return try await WhisperKit.download(
-                variant: Self.modelVariant,
-                useBackgroundSession: true,
-                from: Self.modelRepo,
-                progressCallback: { progress in
-                    let percent = Int(progress.fractionCompleted * 100)
-                    onProgress?("Downloading Whisper model… \(percent)%")
-                }
-            )
-        } catch {
-            throw WhisperModelError.downloadFailed(error.localizedDescription)
+    private static func resolvedModelFolder() -> URL? {
+        bundledModelFolder ?? legacyDownloadedModelFolder
+    }
+
+    private static var bundledModelFolder: URL? {
+        guard let resourceURL = Bundle.main.resourceURL else { return nil }
+
+        let nestedFolder = resourceURL
+            .appendingPathComponent("WhisperModels", isDirectory: true)
+            .appendingPathComponent(modelVariant, isDirectory: true)
+        if validateModel(at: nestedFolder) {
+            return nestedFolder
         }
-    }
 
-    private func cachedModelFolderIfValid() -> URL? {
-        let folder = Self.defaultModelFolder
-        guard Self.validateModel(at: folder) else { return nil }
-        return folder
-    }
-
-    private func removeDownloadedModel() {
-        whisperKit = nil
-        let folder = Self.defaultModelFolder
-        let repoFolder = folder.deletingLastPathComponent()
-        try? FileManager.default.removeItem(at: folder)
-        // Remove repo folder if empty after deleting variant.
-        if let contents = try? FileManager.default.contentsOfDirectory(atPath: repoFolder.path),
-           contents.isEmpty {
-            try? FileManager.default.removeItem(at: repoFolder)
+        // Xcode may flatten bundled Core ML folders to the app resource root.
+        if validateModel(at: resourceURL) {
+            return resourceURL
         }
+
+        return nil
     }
 
-    private static var defaultModelFolder: URL {
+    /// Supports transcripts generated before the model was bundled in the app.
+    private static var legacyDownloadedModelFolder: URL? {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return documents
-            .appendingPathComponent("huggingface/models")
-            .appendingPathComponent(modelRepo)
-            .appendingPathComponent(modelVariant)
+        let folder = documents
+            .appendingPathComponent("huggingface/models", isDirectory: true)
+            .appendingPathComponent("argmaxinc/whisperkit-coreml", isDirectory: true)
+            .appendingPathComponent(modelVariant, isDirectory: true)
+        guard validateModel(at: folder) else { return nil }
+        return folder
     }
 
     private static func validateModel(at folder: URL) -> Bool {
@@ -217,9 +171,5 @@ actor WhisperKitTranscriptionEngine {
             let url = ModelUtilities.detectModelURL(inFolder: folder, named: name)
             return FileManager.default.fileExists(atPath: url.path)
         }
-    }
-
-    private static func melSpectrogramPath(in folder: URL) -> String {
-        ModelUtilities.detectModelURL(inFolder: folder, named: "MelSpectrogram").path
     }
 }

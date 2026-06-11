@@ -34,32 +34,29 @@ enum TranscriptionError: LocalizedError {
 @MainActor
 @Observable
 final class TranscriptionService {
-    static let whisperModelDownloadSize = WhisperKitTranscriptionEngine.estimatedDownloadSize
-
-    var selectedEngineKind: TranscriptionEngineKind {
-        TranscriptionSettings.engineKind
-    }
-
     private(set) var activeChapterID: UUID?
     private(set) var progressMessage = ""
     private(set) var isProcessing = false
-    private(set) var isPreparingEngine = false
 
     private let whisperEngine = WhisperKitTranscriptionEngine.shared
-    private let appleSpeechEngine = AppleSpeechTranscriptionEngine.shared
     private var activeTranscriptionTask: Task<[TimedSegment], Error>?
     private var processingChapter: Chapter?
 
-    /// Stops in-flight transcription or engine setup when the app is minimized or the device is locked.
+    var isWhisperAvailable: Bool {
+        get async {
+            await whisperEngine.isModelAvailable()
+        }
+    }
+
+    /// Stops in-flight transcription when the app is minimized or the device is locked.
     func suspendForBackground(modelContext: ModelContext) {
-        guard isProcessing || isPreparingEngine else { return }
+        guard isProcessing else { return }
 
         activeTranscriptionTask?.cancel()
         Task { await BackgroundTranscriptionCoordinator.shared.cancel() }
         Task { await whisperEngine.cancelActiveWork() }
-        Task { await appleSpeechEngine.cancelActiveWork() }
 
-        if isProcessing, let chapter = processingChapter {
+        if let chapter = processingChapter {
             chapter.transcriptionState = .none
             try? modelContext.save()
         }
@@ -67,67 +64,12 @@ final class TranscriptionService {
         activeTranscriptionTask = nil
         processingChapter = nil
         isProcessing = false
-        isPreparingEngine = false
         activeChapterID = nil
         progressMessage = ""
     }
 
-    func readinessStatus() async -> TranscriptionReadiness {
-        switch TranscriptionSettings.engineKind {
-        case .appleSpeech:
-            if await appleSpeechEngine.isReady() {
-                return .ready
-            }
-            return .needsSetup(.speechAuthorization)
-
-        case .whisper:
-            if await whisperEngine.isModelInstalled() {
-                return .ready
-            }
-            return .needsSetup(.whisperModelDownload(size: Self.whisperModelDownloadSize))
-        }
-    }
-
-    func prepareEngine() async throws {
-        guard !isPreparingEngine else { return }
-
-        isPreparingEngine = true
-        progressMessage = preparationMessage
-
-        defer {
-            isPreparingEngine = false
-            progressMessage = ""
-        }
-
-        do {
-            switch TranscriptionSettings.engineKind {
-            case .appleSpeech:
-                try await appleSpeechEngine.requestAuthorization { message in
-                    Task { @MainActor in
-                        self.progressMessage = message
-                    }
-                }
-            case .whisper:
-                try await whisperEngine.downloadModelIfNeeded { message in
-                    Task { @MainActor in
-                        self.progressMessage = message
-                    }
-                }
-            }
-        } catch let error as AppleSpeechError {
-            throw TranscriptionError.engineUnavailable(error.localizedDescription)
-        } catch let error as WhisperModelError {
-            throw TranscriptionError.engineUnavailable(error.localizedDescription)
-        }
-    }
-
-    func resetEngineStorage() async {
-        switch TranscriptionSettings.engineKind {
-        case .appleSpeech:
-            await appleSpeechEngine.resetStorage()
-        case .whisper:
-            await whisperEngine.resetModelCache()
-        }
+    func resetEngineCache() async {
+        await whisperEngine.resetModelCache()
     }
 
     /// Returns cached segments or transcribes the chapter, saves locally, then returns segments.
@@ -146,7 +88,7 @@ final class TranscriptionService {
         activeChapterID = chapter.id
         isProcessing = true
         processingChapter = chapter
-        progressMessage = "Preparing \(TranscriptionSettings.engineKind.title)…"
+        progressMessage = "Preparing Whisper…"
         chapter.transcriptionState = .processing
 
         defer {
@@ -168,25 +110,17 @@ final class TranscriptionService {
         }
 
         progressMessage = "Transcribing \"\(chapter.title)\"…"
-        let chapterDuration = chapter.duration
 
         let timedSegments: [TimedSegment]
         do {
             activeTranscriptionTask = Task {
-                try await runTranscriptionJob(
-                    audioURL: audioURL,
-                    chapterDuration: chapterDuration
-                )
+                try await runTranscriptionJob(audioURL: audioURL)
             }
             timedSegments = try await activeTranscriptionTask!.value
         } catch is CancellationError {
             chapter.transcriptionState = .none
             try? modelContext.save()
             throw TranscriptionError.cancelled
-        } catch let error as AppleSpeechError {
-            chapter.transcriptionState = .failed
-            try? modelContext.save()
-            throw TranscriptionError.engineUnavailable(error.localizedDescription)
         } catch let error as WhisperModelError {
             chapter.transcriptionState = .failed
             try? modelContext.save()
@@ -203,12 +137,8 @@ final class TranscriptionService {
             throw TranscriptionError.emptyTranscript
         }
 
-        let normalizedSegments = TranscriptionSettings.engineKind == .appleSpeech
-            ? TranscriptSegmentGrouper.normalize(timedSegments)
-            : timedSegments
-
         chapter.segments.forEach { modelContext.delete($0) }
-        chapter.segments = normalizedSegments.enumerated().map { index, segment in
+        chapter.segments = timedSegments.enumerated().map { index, segment in
             TranscriptSegment(
                 startTime: segment.startTime,
                 endTime: segment.endTime,
@@ -233,46 +163,14 @@ final class TranscriptionService {
         }
     }
 
-    private var preparationMessage: String {
-        switch TranscriptionSettings.engineKind {
-        case .appleSpeech:
-            "Requesting speech recognition access…"
-        case .whisper:
-            "Checking Whisper model…"
-        }
-    }
-
-    private func runTranscriptionJob(
-        audioURL: URL,
-        chapterDuration: TimeInterval
-    ) async throws -> [TimedSegment] {
+    private func runTranscriptionJob(audioURL: URL) async throws -> [TimedSegment] {
         let throttler = ProgressThrottler(minimumInterval: 0.5)
-        return try await transcribeWithSelectedEngine(
-            audioURL: audioURL,
-            audioDuration: chapterDuration
-        ) { message in
+        return try await whisperEngine.transcribe(audioURL: audioURL) { message in
             throttler.report(message) { throttledMessage in
                 Task { @MainActor in
                     self.progressMessage = throttledMessage
                 }
             }
-        }
-    }
-
-    private func transcribeWithSelectedEngine(
-        audioURL: URL,
-        audioDuration: TimeInterval,
-        onProgress: (@Sendable (String) -> Void)?
-    ) async throws -> [TimedSegment] {
-        switch TranscriptionSettings.engineKind {
-        case .appleSpeech:
-            return try await appleSpeechEngine.transcribe(
-                audioURL: audioURL,
-                audioDuration: audioDuration,
-                onProgress: onProgress
-            )
-        case .whisper:
-            return try await whisperEngine.transcribe(audioURL: audioURL, onProgress: onProgress)
         }
     }
 }

@@ -55,9 +55,17 @@ Raven/
 - **AVFoundation** for playback
 - **WhisperKit** for on-device speech-to-text
 
+### Whisper model (developers)
+
+The bundled Whisper `tiny` model (~73 MB) lives in `Raven/Resources/WhisperModels/`. After clone, if those files are missing, run:
+
+```bash
+./Scripts/fetch_whisper_model.sh
+```
+
 ## Transcription
 
-The first transcript download pulls the Whisper `tiny` model (~75 MB). Transcripts are stored locally per chapter and reused on later playback.
+Raven ships with OpenAI Whisper (`tiny`) embedded in the app. Transcripts are generated on-device per chapter and stored locally for playback sync and export.
 
 ## License
 

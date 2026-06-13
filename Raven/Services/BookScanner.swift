@@ -13,6 +13,7 @@ struct ScannedChapter: Sendable {
     let relativePath: String
     let duration: TimeInterval
     let sortOrder: Int
+    let startTime: TimeInterval
 }
 
 struct ScanResult: Sendable {
@@ -32,15 +33,17 @@ enum BookScanner {
         var metadataTitle: String?
         var metadataAuthor: String?
         var artworkData: Data?
+        var sortOrder = 0
 
-        for (index, file) in audioFiles.enumerated() {
+        for file in audioFiles {
             let relativePath = file.url.path
                 .replacingOccurrences(of: folderURL.path + "/", with: "")
             let asset = AVURLAsset(url: file.url)
             let duration = try await asset.load(.duration).seconds
             let metadata = try await extractMetadata(from: asset)
+            let fallbackTitle = file.name.deletingPathExtension
 
-            if index == 0 {
+            if chapters.isEmpty {
                 metadataTitle = metadata.title
                 metadataAuthor = metadata.author
                 artworkData = metadata.artwork
@@ -48,13 +51,26 @@ enum BookScanner {
                 artworkData = art
             }
 
-            let chapterTitle = metadata.title ?? file.name.deletingPathExtension
+            if let embeddedChapters = try await EmbeddedChapterScanner.scanEmbeddedChapters(
+                in: asset,
+                relativePath: relativePath,
+                fallbackTitle: fallbackTitle,
+                sortOrderStart: sortOrder
+            ) {
+                chapters.append(contentsOf: embeddedChapters)
+                sortOrder += embeddedChapters.count
+                continue
+            }
+
+            let chapterTitle = metadata.title ?? fallbackTitle
             chapters.append(ScannedChapter(
                 title: chapterTitle,
                 relativePath: relativePath,
                 duration: duration.isFinite ? duration : 0,
-                sortOrder: index
+                sortOrder: sortOrder,
+                startTime: 0
             ))
+            sortOrder += 1
         }
 
         if artworkData == nil {

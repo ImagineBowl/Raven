@@ -28,6 +28,60 @@ final class RavenTests: XCTestCase {
         // https://developer.apple.com/documentation/xctest
     }
 
+    func testChapterInfosReturnsEmptyWhenFewerThanTwoMarkers() {
+        let groups = [
+            (start: 0.0, end: 120.0, title: Optional("Intro"))
+        ]
+
+        let chapters = EmbeddedChapterScanner.chapterInfos(
+            from: groups,
+            assetDuration: 120,
+            fallbackTitle: "Book"
+        )
+
+        XCTAssertTrue(chapters.isEmpty)
+    }
+
+    func testChapterInfosSplitsEmbeddedMarkersIntoChapters() {
+        let groups = [
+            (start: 0.0, end: 100.0, title: Optional("Chapter 1")),
+            (start: 100.0, end: 250.0, title: Optional("Chapter 2")),
+            (start: 250.0, end: .infinity, title: Optional("Chapter 3"))
+        ]
+
+        let chapters = EmbeddedChapterScanner.chapterInfos(
+            from: groups,
+            assetDuration: 400,
+            fallbackTitle: "Book"
+        )
+
+        XCTAssertEqual(chapters.count, 3)
+        XCTAssertEqual(chapters[0].title, "Chapter 1")
+        XCTAssertEqual(chapters[0].startTime, 0, accuracy: 0.001)
+        XCTAssertEqual(chapters[0].duration, 100, accuracy: 0.001)
+        XCTAssertEqual(chapters[1].startTime, 100, accuracy: 0.001)
+        XCTAssertEqual(chapters[1].duration, 150, accuracy: 0.001)
+        XCTAssertEqual(chapters[2].startTime, 250, accuracy: 0.001)
+        XCTAssertEqual(chapters[2].duration, 150, accuracy: 0.001)
+    }
+
+    func testChapterInfosUsesNextMarkerStartWhenEndIsMissing() {
+        let groups = [
+            (start: 0.0, end: 0.0, title: Optional("Part 1")),
+            (start: 90.0, end: 0.0, title: Optional("Part 2"))
+        ]
+
+        let chapters = EmbeddedChapterScanner.chapterInfos(
+            from: groups,
+            assetDuration: 200,
+            fallbackTitle: "Book"
+        )
+
+        XCTAssertEqual(chapters.count, 2)
+        XCTAssertEqual(chapters[0].duration, 90, accuracy: 0.001)
+        XCTAssertEqual(chapters[1].duration, 110, accuracy: 0.001)
+    }
+
     func testPerformanceExample() throws {
         // This is an example of a performance test case.
         self.measure {

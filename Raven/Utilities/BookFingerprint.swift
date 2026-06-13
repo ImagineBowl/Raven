@@ -13,14 +13,14 @@ enum BookFingerprint {
     nonisolated static func makePathIdentity(from chapters: [ScannedChapter]) -> String {
         let payload = chapters
             .sorted { $0.sortOrder < $1.sortOrder }
-            .map(\.relativePath)
+            .map { chapterIdentity($0) }
             .joined(separator: "\n")
         return hash(payload)
     }
 
     static func makePathIdentity(from book: Book) -> String {
         let payload = book.sortedChapters
-            .map(\.relativePath)
+            .map { chapterIdentity(relativePath: $0.relativePath, startTime: $0.startTime) }
             .joined(separator: "\n")
         return hash(payload)
     }
@@ -29,16 +29,26 @@ enum BookFingerprint {
     nonisolated static func make(from chapters: [ScannedChapter]) -> String {
         let payload = chapters
             .sorted { $0.sortOrder < $1.sortOrder }
-            .map { "\($0.relativePath)|\(String(format: "%.3f", $0.duration))" }
+            .map { "\(chapterIdentity($0))|\(String(format: "%.3f", $0.duration))" }
             .joined(separator: "\n")
         return hash(payload)
     }
 
     static func make(from book: Book) -> String {
         let payload = book.sortedChapters
-            .map { "\($0.relativePath)|\(String(format: "%.3f", $0.duration))" }
+            .map {
+                "\(chapterIdentity(relativePath: $0.relativePath, startTime: $0.startTime))|\(String(format: "%.3f", $0.duration))"
+            }
             .joined(separator: "\n")
         return hash(payload)
+    }
+
+    nonisolated private static func chapterIdentity(_ chapter: ScannedChapter) -> String {
+        chapterIdentity(relativePath: chapter.relativePath, startTime: chapter.startTime)
+    }
+
+    nonisolated private static func chapterIdentity(relativePath: String, startTime: TimeInterval) -> String {
+        "\(relativePath)|\(String(format: "%.3f", startTime))"
     }
 
     nonisolated private static func hash(_ payload: String) -> String {

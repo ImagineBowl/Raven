@@ -41,6 +41,8 @@ final class AudioPlayerService {
 
     private var player: AVPlayer?
     private var folderURL: URL?
+    private var loadedFileURL: URL?
+    private var chapterEndTriggered = false
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var modelContext: ModelContext?
@@ -115,9 +117,10 @@ final class AudioPlayerService {
     }
 
     func seek(to time: TimeInterval) {
-        guard let player else { return }
-        let clamped = max(0, min(time, currentChapter?.duration ?? time))
-        player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600))
+        guard let player, let chapter = currentChapter else { return }
+        let clamped = max(0, min(time, chapter.duration))
+        let absoluteTime = chapter.startTime + clamped
+        player.seek(to: CMTime(seconds: absoluteTime, preferredTimescale: 600))
         currentTime = clamped
         if let book = currentBook {
             book.currentTime = clamped
@@ -211,42 +214,59 @@ final class AudioPlayerService {
         let chapters = book.sortedChapters
         guard chapters.indices.contains(index) else { return }
 
-        removePlayerObservers()
-        player?.pause()
-        player = nil
-
         let chapter = chapters[index]
         let fileURL = folderURL.appendingPathComponent(chapter.relativePath)
-        let item = AVPlayerItem(url: fileURL)
-        let newPlayer = AVPlayer(playerItem: item)
-        player = newPlayer
+        let clampedSeek = max(0, min(seekTo, chapter.duration))
+        let absoluteSeek = chapter.startTime + clampedSeek
+        let reusesLoadedFile = loadedFileURL == fileURL && player != nil
+
+        if !reusesLoadedFile {
+            removePlayerObservers()
+            player?.pause()
+            player = nil
+            loadedFileURL = nil
+
+            let item = AVPlayerItem(url: fileURL)
+            let newPlayer = AVPlayer(playerItem: item)
+            player = newPlayer
+            loadedFileURL = fileURL
+            addPlayerObservers(for: newPlayer, item: item)
+        }
+
+        guard let player else { return }
+
+        chapterEndTriggered = false
         currentChapterIndex = index
-        currentTime = seekTo
+        currentTime = clampedSeek
 
-        let seekTime = CMTime(seconds: seekTo, preferredTimescale: 600)
-        await newPlayer.seek(to: seekTime)
-
-        addPlayerObservers(for: newPlayer, item: item)
+        let seekTime = CMTime(seconds: absoluteSeek, preferredTimescale: 600)
+        await player.seek(to: seekTime)
 
         if autoPlay {
-            newPlayer.rate = playbackRate
+            player.rate = playbackRate
             isPlaying = true
         } else {
+            player.pause()
             isPlaying = false
         }
 
         book.currentChapterIndex = index
-        book.currentTime = seekTo
+        book.currentTime = clampedSeek
         updateNowPlaying()
         saveProgress()
     }
 
     private func addPlayerObservers(for player: AVPlayer, item: AVPlayerItem) {
-        let interval = CMTime(seconds: 1.0, preferredTimescale: 600)
+        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             MainActor.assumeIsolated {
-                guard let self else { return }
-                self.currentTime = time.seconds
+                guard let self, let chapter = self.currentChapter else { return }
+                let absoluteTime = time.seconds
+                let chapterRelative = absoluteTime - chapter.startTime
+                self.currentTime = max(0, min(chapterRelative, chapter.duration))
+                if chapterRelative >= chapter.duration - 0.25 {
+                    self.handleChapterFinished()
+                }
                 self.checkSleepTimerExpiry()
                 self.updateNowPlayingIfNeeded()
                 self.scheduleProgressSave()
@@ -265,7 +285,10 @@ final class AudioPlayerService {
     }
 
     private func handleChapterFinished() {
+        guard !chapterEndTriggered else { return }
         guard let book = currentBook else { return }
+        chapterEndTriggered = true
+
         let nextIndex = currentChapterIndex + 1
         if book.sortedChapters.indices.contains(nextIndex) {
             Task {
@@ -273,6 +296,7 @@ final class AudioPlayerService {
             }
         } else {
             isPlaying = false
+            player?.pause()
             currentTime = currentChapter?.duration ?? 0
             saveProgress()
             updateNowPlaying()
@@ -305,6 +329,7 @@ final class AudioPlayerService {
         removePlayerObservers()
         player?.pause()
         player = nil
+        loadedFileURL = nil
         setBedtimeMode(enabled: false)
         saveProgress()
         releaseFolderAccess()

@@ -109,12 +109,31 @@ final class TranscriptionService {
             throw TranscriptionError.audioFileNotFound
         }
 
+        let usesSegment = chapterUsesSegmentExport(chapter, in: book)
+        var transcriptionURL = audioURL
+        var temporaryURL: URL?
+
+        if usesSegment {
+            temporaryURL = try await AudioChapterSegmentExporter.exportSegment(
+                from: audioURL,
+                startTime: chapter.startTime,
+                duration: chapter.duration
+            )
+            transcriptionURL = temporaryURL!
+        }
+
+        defer {
+            if let temporaryURL {
+                try? FileManager.default.removeItem(at: temporaryURL)
+            }
+        }
+
         progressMessage = "Transcribing \"\(chapter.title)\"…"
 
         let timedSegments: [TimedSegment]
         do {
             activeTranscriptionTask = Task {
-                try await runTranscriptionJob(audioURL: audioURL)
+                try await runTranscriptionJob(audioURL: transcriptionURL)
             }
             timedSegments = try await activeTranscriptionTask!.value
         } catch is CancellationError {
@@ -172,5 +191,10 @@ final class TranscriptionService {
                 }
             }
         }
+    }
+
+    private func chapterUsesSegmentExport(_ chapter: Chapter, in book: Book) -> Bool {
+        if chapter.startTime > 0 { return true }
+        return book.sortedChapters.filter { $0.relativePath == chapter.relativePath }.count > 1
     }
 }

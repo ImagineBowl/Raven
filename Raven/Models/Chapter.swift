@@ -14,6 +14,8 @@ final class Chapter {
     var title: String
     /// Filename relative to the book folder (e.g. "Chapter1.mp3").
     var relativePath: String
+    /// Offset within `relativePath` for embedded chapters (e.g. M4B markers). Zero for whole-file chapters.
+    var startTime: TimeInterval = 0
     var duration: TimeInterval
     var sortOrder: Int
     var transcriptionStateRaw: String
@@ -23,10 +25,17 @@ final class Chapter {
     @Relationship(deleteRule: .cascade, inverse: \TranscriptSegment.chapter)
     var segments: [TranscriptSegment]
 
-    init(title: String, relativePath: String, duration: TimeInterval, sortOrder: Int) {
+    init(
+        title: String,
+        relativePath: String,
+        duration: TimeInterval,
+        sortOrder: Int,
+        startTime: TimeInterval = 0
+    ) {
         self.id = UUID()
         self.title = title
         self.relativePath = relativePath
+        self.startTime = startTime
         self.duration = duration
         self.sortOrder = sortOrder
         self.transcriptionStateRaw = TranscriptionState.none.rawValue

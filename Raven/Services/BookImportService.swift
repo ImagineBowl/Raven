@@ -115,6 +115,7 @@ final class BookImportService {
         }
 
         let savedChapterPath = book.sortedChapters[safe: book.currentChapterIndex]?.relativePath
+        let savedChapterStart = book.sortedChapters[safe: book.currentChapterIndex]?.startTime ?? 0
         let savedTime = book.currentTime
 
         book.title = scanResult.title
@@ -126,7 +127,9 @@ final class BookImportService {
         applyChapters(from: scanResult, to: book)
 
         if let savedChapterPath,
-           let newIndex = book.sortedChapters.firstIndex(where: { $0.relativePath == savedChapterPath }) {
+           let newIndex = book.sortedChapters.firstIndex(where: {
+               $0.relativePath == savedChapterPath && abs($0.startTime - savedChapterStart) < 0.001
+           }) {
             book.currentChapterIndex = newIndex
             book.currentTime = min(savedTime, book.sortedChapters[newIndex].duration)
         } else {
@@ -143,7 +146,8 @@ final class BookImportService {
                 title: scanned.title,
                 relativePath: scanned.relativePath,
                 duration: scanned.duration,
-                sortOrder: scanned.sortOrder
+                sortOrder: scanned.sortOrder,
+                startTime: scanned.startTime
             )
         }
         book.recalculateTotalDuration()

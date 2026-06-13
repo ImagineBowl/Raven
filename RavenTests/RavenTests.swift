@@ -5,6 +5,7 @@
 //  Created by Ahsan Minhas on 28/05/2026.
 //
 
+import SwiftData
 import XCTest
 @testable import Raven
 
@@ -80,6 +81,13 @@ final class RavenTests: XCTestCase {
         XCTAssertEqual(chapters.count, 2)
         XCTAssertEqual(chapters[0].duration, 90, accuracy: 0.001)
         XCTAssertEqual(chapters[1].duration, 110, accuracy: 0.001)
+    }
+
+    func testSchemaMigrationPlanIncludesV1AndV2() {
+        XCTAssertEqual(RavenSchemaMigrationPlan.schemas.count, 2)
+        XCTAssertEqual(RavenSchemaMigrationPlan.stages.count, 1)
+        XCTAssertEqual(RavenSchemaV1.versionIdentifier, Schema.Version(1, 0, 0))
+        XCTAssertEqual(RavenSchemaV2.versionIdentifier, Schema.Version(2, 0, 0))
     }
 
     func testPerformanceExample() throws {

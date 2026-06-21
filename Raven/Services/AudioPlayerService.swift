@@ -8,6 +8,7 @@
 import AVFoundation
 import Foundation
 import Observation
+import os
 import SwiftData
 import UIKit
 
@@ -321,7 +322,7 @@ final class AudioPlayerService {
         do {
             try modelContext.save()
         } catch {
-            // Keep in memory; next save attempt may succeed.
+            RavenLog.playback.error("Failed to save playback progress: \(error.localizedDescription, privacy: .public)")
         }
     }
 

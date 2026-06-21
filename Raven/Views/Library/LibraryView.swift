@@ -108,6 +108,9 @@ struct LibraryView: View {
             }
             .task {
                 player.configure(modelContext: modelContext)
+                if ModelStorage.needsLibraryResyncAfterRecovery {
+                    ModelStorage.needsLibraryResyncAfterRecovery = false
+                }
                 await viewModel.syncLibrary(modelContext: modelContext)
             }
             .onChange(of: scenePhase) { _, newPhase in

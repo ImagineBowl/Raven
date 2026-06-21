@@ -171,13 +171,10 @@ final class BookImportService {
 }
 
 enum ImportError: LocalizedError {
-    case duplicateBook(existingTitle: String)
     case notAFolder
 
     var errorDescription: String? {
         switch self {
-        case .duplicateBook(let existingTitle):
-            "This audiobook is already in your library as \"\(existingTitle)\"."
         case .notAFolder:
             "Please select a folder containing audio files."
         }

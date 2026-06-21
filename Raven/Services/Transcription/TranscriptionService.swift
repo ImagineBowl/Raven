@@ -48,8 +48,12 @@ final class TranscriptionService {
         }
     }
 
-    /// Stops in-flight transcription when the app is minimized or the device is locked.
-    func suspendForBackground(modelContext: ModelContext) {
+    func resetEngineCache() async {
+        await whisperEngine.resetModelCache()
+    }
+
+    /// Cancels in-flight transcription (for example when the user switches chapters).
+    func cancelActiveTranscription(modelContext: ModelContext) {
         guard isProcessing else { return }
 
         activeTranscriptionTask?.cancel()
@@ -66,10 +70,6 @@ final class TranscriptionService {
         isProcessing = false
         activeChapterID = nil
         progressMessage = ""
-    }
-
-    func resetEngineCache() async {
-        await whisperEngine.resetModelCache()
     }
 
     /// Returns cached segments or transcribes the chapter, saves locally, then returns segments.
@@ -133,7 +133,10 @@ final class TranscriptionService {
         let timedSegments: [TimedSegment]
         do {
             activeTranscriptionTask = Task {
-                try await runTranscriptionJob(audioURL: transcriptionURL)
+                try await runTranscriptionJob(
+                    audioURL: transcriptionURL,
+                    chapterTitle: chapter.title
+                )
             }
             timedSegments = try await activeTranscriptionTask!.value
         } catch is CancellationError {
@@ -182,19 +185,47 @@ final class TranscriptionService {
         }
     }
 
-    private func runTranscriptionJob(audioURL: URL) async throws -> [TimedSegment] {
+    private func runTranscriptionJob(audioURL: URL, chapterTitle: String) async throws -> [TimedSegment] {
         let throttler = ProgressThrottler(minimumInterval: 0.5)
-        return try await whisperEngine.transcribe(audioURL: audioURL) { message in
-            throttler.report(message) { throttledMessage in
-                Task { @MainActor in
-                    self.progressMessage = throttledMessage
+        let engine = whisperEngine
+        let resultBox = TranscriptionResultBox()
+
+        try await BackgroundTranscriptionCoordinator.shared.execute(
+            title: "Transcribing Audiobook",
+            subtitle: chapterTitle
+        ) { _ in
+            let segments = try await engine.transcribe(audioURL: audioURL) { message in
+                throttler.report(message) { throttledMessage in
+                    Task { @MainActor in
+                        self.progressMessage = throttledMessage
+                    }
                 }
             }
+            resultBox.store(segments)
         }
+
+        return resultBox.value
     }
 
     private func chapterUsesSegmentExport(_ chapter: Chapter, in book: Book) -> Bool {
         if chapter.startTime > 0 { return true }
         return book.sortedChapters.filter { $0.relativePath == chapter.relativePath }.count > 1
+    }
+}
+
+private final class TranscriptionResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var segments: [TimedSegment] = []
+
+    func store(_ segments: [TimedSegment]) {
+        lock.lock()
+        self.segments = segments
+        lock.unlock()
+    }
+
+    var value: [TimedSegment] {
+        lock.lock()
+        defer { lock.unlock() }
+        return segments
     }
 }

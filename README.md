@@ -11,10 +11,11 @@ A local-first audiobook player for iOS. Import folders of audio files, listen wi
 - **Background audio** — Lock screen and AirPods controls with artwork
 - **Mini player** — Persistent bar when navigating away from the player
 - **Transcripts** — On-device transcription via [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) with search and SRT/VTT export
+- **Search** — Find books by title or author, or search text inside generated transcripts
 
 ## Requirements
 
-- iOS 18+
+- iOS 26+
 - Xcode 16+
 - Swift 5
 
